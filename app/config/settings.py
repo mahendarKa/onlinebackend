@@ -9,12 +9,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    DATABASE_URL: str = (
-        "mysql+pymysql://root:root@localhost:3306/online_exam_portal"
-    )
+    # DATABASE_URL: str = (
+    #     "mysql+pymysql://root:root@localhost:3306/online_exam_portal"
+    # )
 
-    SECRET_KEY: str = "hansetechhansetechhansetechhansetech"
-
+    # SECRET_KEY: str = "hansetechhansetechhansetechhansetech"
+    DATABASE_URL: str
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200
