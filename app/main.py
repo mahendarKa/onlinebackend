@@ -4,8 +4,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.database import Base, engine
-from app import models  # noqa: F401  (registers all models on Base.metadata)
-from init_db import apply_column_migrations
+# from app import models  # noqa: F401  (registers all models on Base.metadata)
+# from init_db import apply_column_migrations
+from app.config.database import Base, engine, SessionLocal
+from app import models
+
+from init_db import (
+    apply_column_migrations,
+    seed_user,
+    ADMIN_EMAIL,
+    ADMIN_PASSWORD,
+    ADMIN_NAME,
+    SUPERADMIN_EMAIL,
+    SUPERADMIN_PASSWORD,
+    SUPERADMIN_NAME,
+)
+
 
 from app.routers import users
 from app.routers import auth
@@ -45,13 +59,72 @@ from app.routers import result_pdf
 from app.routers import attempt_history
 from app.routers import exam_feedback
 from app.routers import uploads
+# @asynccontextmanager
+# async def lifespan(_app: FastAPI):
+#     # create_all only builds missing tables; it never drops or alters
+#     # existing data. Column migrations then patch columns added later.
+#     Base.metadata.create_all(bind=engine)
+#     apply_column_migrations()
+#     yield
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # create_all only builds missing tables; it never drops or alters
-    # existing data. Column migrations then patch columns added later.
+    print("Starting database initialization...")
+
+    # Create missing tables
     Base.metadata.create_all(bind=engine)
+    print("Database tables checked.")
+
+    # Apply column migrations
     apply_column_migrations()
+    print("Database migrations completed.")
+
+    # Create default admin and superadmin
+    db = SessionLocal()
+
+    try:
+        seed_user(
+            db,
+            ADMIN_NAME,
+            ADMIN_EMAIL,
+            ADMIN_PASSWORD,
+            "admin",
+        )
+
+        seed_user(
+            db,
+            SUPERADMIN_NAME,
+            SUPERADMIN_EMAIL,
+            SUPERADMIN_PASSWORD,
+            "superadmin",
+        )
+
+        print("Admin and Superadmin initialization completed.")
+
+    finally:
+        db.close()
+
     yield
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 app = FastAPI(
