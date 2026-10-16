@@ -1,5 +1,11 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.config.database import Base, engine
+from app import models  # noqa: F401  (registers all models on Base.metadata)
+from init_db import apply_column_migrations
 
 from app.routers import users
 from app.routers import auth
@@ -39,9 +45,19 @@ from app.routers import result_pdf
 from app.routers import attempt_history
 from app.routers import exam_feedback
 from app.routers import uploads
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # create_all only builds missing tables; it never drops or alters
+    # existing data. Column migrations then patch columns added later.
+    Base.metadata.create_all(bind=engine)
+    apply_column_migrations()
+    yield
+
+
 app = FastAPI(
     title="Online Exam Portal API",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -51,6 +67,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://onlinefrontend.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
