@@ -1,5 +1,4 @@
 
-from datetime import datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +17,7 @@ from app.schemas.exam import (
     ExamBatchCreate, ExamBatchResponse,
 )
 from app.utils.dependencies import require_role
+from app.utils.time import utcnow
 from app.services.activity_service import log_audit, notify, notify_many
 from app.models.batch_student import BatchStudent
 from app.models.batch_teacher import BatchTeacher
@@ -377,7 +377,7 @@ def assign_batch(
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    if data.start_time and data.start_time < datetime.now():
+    if data.start_time and data.start_time < utcnow():
         raise HTTPException(
             status_code=400,
             detail="Start time cannot be in the past",

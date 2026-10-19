@@ -1,6 +1,4 @@
 
-from datetime import datetime
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -9,6 +7,7 @@ from app.models.exam import Exam, ExamBatch
 from app.models.batch_student import BatchStudent
 from app.models.exam_attempt import ExamAttempt
 from app.utils.dependencies import require_role
+from app.utils.time import utcnow
 
 router = APIRouter(
     prefix="/api/student/dashboard",
@@ -23,7 +22,7 @@ def get_student_exams(
     db: Session = Depends(get_db),
     current_user=student_only,
 ):
-    now = datetime.now()
+    now = utcnow()
 
     # Find batches to which the current student belongs.
     student_batch_ids = [

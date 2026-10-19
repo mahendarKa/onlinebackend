@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from sqlalchemy import (
     Column,
     BigInteger,
@@ -10,6 +8,7 @@ from sqlalchemy import (
 
 from app.config.database import Base
 from app.models.base import TimestampMixin
+from app.utils.time import utcnow
 
 
 class BatchTeacher(TimestampMixin, Base):
@@ -36,7 +35,7 @@ class BatchTeacher(TimestampMixin, Base):
 
     assigned_at = Column(
         DateTime,
-        default=datetime.now,
+        default=utcnow,
         nullable=False
     )
 

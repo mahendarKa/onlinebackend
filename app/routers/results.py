@@ -1,5 +1,4 @@
 
-from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
@@ -30,6 +29,7 @@ from app.services.evaluation_service import (
     wildcard_values,
 )
 from app.utils.dependencies import require_role
+from app.utils.time import utcnow
 from app.utils.permissions import (
     is_admin,
     require_exam_grade,
@@ -262,7 +262,7 @@ def evaluate_answer(
     answer.marks_obtained = marks
     answer.is_correct = data.is_correct
     answer.evaluated_by = current_user.id
-    answer.evaluated_at = datetime.now()
+    answer.evaluated_at = utcnow()
 
     db.commit()
 

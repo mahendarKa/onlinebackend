@@ -1,19 +1,19 @@
-from datetime import datetime
-
 from sqlalchemy import Column, DateTime
+
+from app.utils.time import utcnow
 
 
 class TimestampMixin:
 
     created_at = Column(
         DateTime,
-        default=datetime.now,
+        default=utcnow,
         nullable=False
     )
 
     updated_at = Column(
         DateTime,
-        default=datetime.now,
-        onupdate=datetime.now,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False
     )
