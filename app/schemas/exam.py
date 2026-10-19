@@ -1,9 +1,19 @@
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import (
+    BaseModel, Field, ConfigDict, field_validator, model_validator,
+)
+
+
+def _to_naive_utc(v):
+    # Clients send timezone-aware ISO strings ("...Z"); the DB stores
+    # naive UTC, so strip tz after converting.
+    if isinstance(v, datetime) and v.tzinfo is not None:
+        return v.astimezone(timezone.utc).replace(tzinfo=None)
+    return v
 
 
 class ExamCreate(BaseModel):
@@ -22,6 +32,11 @@ class ExamCreate(BaseModel):
     attempts_allowed: Optional[int] = Field(default=1, ge=1)
     shuffle_questions: bool = False
     is_active: bool = True
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def _naive_utc(cls, v):
+        return _to_naive_utc(v)
 
     @model_validator(mode="after")
     def validate_exam(self):
@@ -52,6 +67,11 @@ class ExamUpdate(BaseModel):
     attempts_allowed: Optional[int] = Field(default=None, ge=1)
     shuffle_questions: Optional[bool] = None
     is_active: Optional[bool] = None
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def _naive_utc(cls, v):
+        return _to_naive_utc(v)
 
 
 class ExamResponse(BaseModel):
@@ -99,6 +119,11 @@ class ExamBatchCreate(BaseModel):
     # Restrict grading to these teachers (must be teachers of the
     # batch). Empty/None = every teacher of the batch may grade.
     grader_ids: Optional[list[int]] = None
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def _naive_utc(cls, v):
+        return _to_naive_utc(v)
 
     @model_validator(mode="after")
     def validate_times(self):

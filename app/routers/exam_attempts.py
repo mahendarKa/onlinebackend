@@ -1,6 +1,6 @@
 
 import random
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,6 +34,7 @@ from app.schemas.exam_attempt import (
     ExamImageForStudent,
 )
 from app.utils.dependencies import require_role
+from app.utils.time import utcnow
 from app.services.evaluation_service import (
     answer_has_content,
     auto_grade_answer,
@@ -68,7 +69,7 @@ def check_attempt_open(attempt: ExamAttempt, db: Session):
         raise HTTPException(status_code=404, detail="Exam not found")
 
     deadline = attempt.start_time + timedelta(minutes=exam.duration_minutes)
-    now = datetime.now()
+    now = utcnow()
 
     if now >= deadline:
         raise HTTPException(
@@ -92,7 +93,7 @@ def start_exam(
     db: Session = Depends(get_db),
     current_user=student_only,
 ):
-    now = datetime.now()
+    now = utcnow()
 
     exam = db.query(Exam).filter(
         Exam.id == exam_id,
@@ -591,7 +592,7 @@ def submit_exam(
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    now = datetime.now()
+    now = utcnow()
     deadline = attempt.start_time + timedelta(minutes=exam.duration_minutes)
     if exam.end_time:
         deadline = min(deadline, exam.end_time)

@@ -1,8 +1,8 @@
 from sqlalchemy import Column, BigInteger, Text, ForeignKey, DateTime
-from datetime import datetime
 
 from app.config.database import Base
 from app.models.base import TimestampMixin
+from app.utils.time import utcnow
 
 
 class ParagraphPassage(TimestampMixin, Base):
@@ -17,6 +17,6 @@ class ParagraphPassage(TimestampMixin, Base):
     )
     created_at = Column(
         DateTime,
-        default=datetime.now,
+        default=utcnow,
         nullable=False
     )
