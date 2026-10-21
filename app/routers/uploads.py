@@ -1,16 +1,26 @@
 """Image file uploads for question/option images.
 
-POST accepts a multipart file, stores it under backend/uploads/ and
-returns the URL path the client should save as image_url.
-GET serves the stored file without auth because <img> tags cannot send
-Authorization headers; filenames are random UUIDs and never user input.
+POST accepts a multipart file and stores the bytes in the
+uploaded_files table, returning the URL the client saves as
+image_url. The shared DB is used rather than local disk because
+several backend instances (local dev, cloud deploys) share one DB
+but not a filesystem — and cloud disks are ephemeral — so
+filesystem-only files 404 on every other instance.
+
+GET serves the stored bytes without auth because <img> tags and
+Image.network cannot send Authorization headers; filenames are
+random UUIDs and never user input. Falls back to backend/uploads/
+for files written before DB storage existed.
 """
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from sqlalchemy.orm import Session
 
+from app.config.database import get_db
+from app.models.uploaded_file import UploadedFile
 from app.utils.dependencies import require_role
 
 router = APIRouter(prefix="/api/uploads", tags=["Uploads"])
@@ -25,6 +35,7 @@ MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 @router.post("")
 async def upload_image(
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
     current_user=Depends(require_role("admin", "teacher")),
 ):
     ext = Path(file.filename or "").suffix.lower()
@@ -34,7 +45,8 @@ async def upload_image(
             detail=f"Unsupported file type '{ext}'. Use png, jpg, jpeg, gif or webp.",
         )
 
-    if file.content_type and not file.content_type.startswith("image/"):
+    content_type = file.content_type or ""
+    if content_type and not content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
     data = await file.read()
@@ -44,19 +56,38 @@ async def upload_image(
         raise HTTPException(status_code=400, detail="Image too large (max 5 MB)")
 
     name = f"{uuid.uuid4().hex}{ext}"
-    (UPLOAD_DIR / name).write_bytes(data)
+    db.add(UploadedFile(
+        name=name,
+        content_type=content_type or "application/octet-stream",
+        data=data,
+    ))
+    db.commit()
 
     return {"image_url": f"/api/uploads/{name}"}
 
 
 @router.get("/{filename}")
-def get_upload(filename: str):
-    # Never trust the path: only bare filenames in the upload dir.
+def get_upload(filename: str, db: Session = Depends(get_db)):
+    # Never trust the path: only bare filenames.
     if "/" in filename or "\\" in filename or filename.startswith("."):
         raise HTTPException(status_code=404, detail="Not found")
 
-    path = UPLOAD_DIR / filename
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Not found")
+    row = db.query(UploadedFile).filter(
+        UploadedFile.name == filename).first()
+    if row is not None:
+        # Names are unique random ids — safe to cache forever.
+        return Response(
+            content=row.data,
+            media_type=row.content_type,
+            headers={
+                "Cache-Control":
+                    "public, max-age=31536000, immutable",
+            },
+        )
 
-    return FileResponse(path)
+    # Legacy files written to disk before DB storage existed.
+    path = UPLOAD_DIR / filename
+    if path.is_file():
+        return FileResponse(path)
+
+    raise HTTPException(status_code=404, detail="Not found")

@@ -295,7 +295,8 @@ def wildcard_values(datasets, seed):
     rng = random.Random(str(seed))
     values = {}
     for d in sorted(datasets, key=lambda x: str(x.get("name", ""))):
-        name = str(d.get("name", "")).strip()
+        # Strip braces — some clients saved "{a}" instead of "a".
+        name = re.sub(r"[{}]", "", str(d.get("name", ""))).strip()
         if not name:
             continue
         lo = float(d.get("min_value", d.get("min", 0)) or 0)

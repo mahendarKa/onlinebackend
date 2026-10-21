@@ -25,3 +25,4 @@ from app.models.exam_attempt import ExamAttempt, StudentAnswer, ExamResult
 from app.models.notification import Notification
 from app.models.audit_log import AuditLog
 from app.models.exam_feedback import ExamFeedback
+from app.models.uploaded_file import UploadedFile
