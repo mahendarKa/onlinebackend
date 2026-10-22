@@ -4,14 +4,14 @@ from pydantic import AfterValidator, BaseModel, EmailStr, Field
 
 
 def _validate_mobile(v: Optional[str]) -> Optional[str]:
-    """Mobile is optional, but when given it needs >=10 digits."""
+    """Mobile is optional, but when given it must be exactly 10 digits."""
     if v is None:
         return v
     digits = sum(c.isdigit() for c in v)
     if digits == 0:
         return None  # treat blank/non-numeric-empty input as unset
-    if digits < 10:
-        raise ValueError("Mobile number must be at least 10 digits")
+    if digits != 10:
+        raise ValueError("Mobile number must be exactly 10 digits")
     return v
 
 
