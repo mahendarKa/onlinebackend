@@ -270,6 +270,13 @@ def admin_bulk_upload_users(
             )
             continue
 
+        if mobile and sum(c.isdigit() for c in mobile) < 10:
+            errors.append(
+                {"row": row_no, "email": email or "-",
+                 "reason": "mobile_number must be at least 10 digits"}
+            )
+            continue
+
         if role not in ALLOWED_ROLES:
             errors.append(
                 {"row": row_no, "email": email,
