@@ -6,6 +6,7 @@ from app.config.database import get_db
 from app.models.exam import Exam
 from app.models.exam_attempt import ExamAttempt, ExamResult
 from app.models.user import User
+from app.services.attempt_service import expire_if_due
 from app.utils.dependencies import require_role
 from app.utils.permissions import (
     is_admin,
@@ -39,6 +40,9 @@ def list_exams(
         attempts = db.query(ExamAttempt).filter(
             ExamAttempt.exam_id == exam.id
         ).all()
+
+        for attempt in attempts:
+            expire_if_due(db, attempt, exam)
 
         output.append({
             "exam_id": exam.id,
@@ -76,6 +80,9 @@ def exam_attempts(
     attempts = db.query(ExamAttempt).filter(
         ExamAttempt.exam_id == exam_id
     ).order_by(ExamAttempt.id.desc()).all()
+
+    for attempt in attempts:
+        expire_if_due(db, attempt, exam)
 
     output = []
 
@@ -126,6 +133,7 @@ def attempt_detail(
 
     if exam:
         require_exam_view(current_user, exam, db)
+        expire_if_due(db, attempt, exam)
 
     student = db.query(User).filter(
         User.id == attempt.user_id

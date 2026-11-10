@@ -5,6 +5,7 @@ from app.config.database import get_db
 from app.models.exam import Exam
 from app.models.exam_attempt import ExamAttempt, ExamResult
 from app.models.user import User
+from app.services.attempt_service import expire_if_due
 from app.utils.dependencies import require_role
 
 
@@ -32,6 +33,8 @@ def get_my_attempt_history(
     history = []
 
     for attempt, exam in attempts:
+        expire_if_due(db, attempt, exam)
+
         result = db.query(ExamResult).filter(
             ExamResult.exam_attempt_id == attempt.id
         ).first()
@@ -93,6 +96,8 @@ def get_my_exam_attempts(
     history = []
 
     for attempt in attempts:
+        expire_if_due(db, attempt, exam)
+
         result = db.query(ExamResult).filter(
             ExamResult.exam_attempt_id == attempt.id
         ).first()

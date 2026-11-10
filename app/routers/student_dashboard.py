@@ -6,6 +6,7 @@ from app.config.database import get_db
 from app.models.exam import Exam, ExamBatch
 from app.models.batch_student import BatchStudent
 from app.models.exam_attempt import ExamAttempt
+from app.services.attempt_service import expire_if_due
 from app.utils.dependencies import require_role
 from app.utils.time import utcnow
 
@@ -84,6 +85,12 @@ def get_student_exams(
             ExamAttempt.exam_id == exam.id,
             ExamAttempt.user_id == current_user.id,
         ).order_by(ExamAttempt.attempt_no.desc()).all()
+
+        # Lazily auto-submit attempts whose deadline already passed so a
+        # stale in_progress row can't keep the exam looking resumable
+        # after the window closed — status then falls through to ended.
+        for attempt in attempts:
+            expire_if_due(db, attempt, exam)
 
         completed_attempts = [
             a for a in attempts
