@@ -746,7 +746,7 @@ def _result_answers_payload(attempt: ExamAttempt, db: Session) -> list:
 
         answer = answers.get(item.question_id)
         options, correct_answer, match_items, gap_blanks, ordering_items = (
-            _correct_payload(question, db, attempt_id)
+            _correct_payload(question, db, attempt.id)
         )
 
         images = []
@@ -763,7 +763,7 @@ def _result_answers_payload(attempt: ExamAttempt, db: Session) -> list:
         if question.type in (
             "calculated", "calculatedsimple", "calculatedmulti"
         ):
-            wc = calculated_wildcards(db, question.id, attempt_id)
+            wc = calculated_wildcards(db, question.id, attempt.id)
             if wc:
                 q_text = substitute_wildcards(q_text, wc)
 
