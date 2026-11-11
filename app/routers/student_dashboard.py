@@ -6,6 +6,7 @@ from app.config.database import get_db
 from app.models.exam import Exam, ExamBatch
 from app.models.batch_student import BatchStudent
 from app.models.exam_attempt import ExamAttempt
+from app.services.activity_service import notify_expired_exams
 from app.services.attempt_service import expire_if_due
 from app.utils.dependencies import require_role
 from app.utils.time import utcnow
@@ -24,6 +25,10 @@ def get_student_exams(
     current_user=student_only,
 ):
     now = utcnow()
+
+    # Lazy pass: emit expiry notifications for exams whose end
+    # time has passed since the last request.
+    notify_expired_exams(db)
 
     # Find batches to which the current student belongs.
     student_batch_ids = [

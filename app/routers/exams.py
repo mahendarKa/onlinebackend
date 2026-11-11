@@ -18,7 +18,13 @@ from app.schemas.exam import (
 )
 from app.utils.dependencies import require_role
 from app.utils.time import utcnow
-from app.services.activity_service import log_audit, notify, notify_many
+from app.services.activity_service import (
+    admin_ids,
+    log_audit,
+    notify,
+    notify_many,
+    notify_expired_exams,
+)
 from app.models.batch_student import BatchStudent
 from app.models.batch_teacher import BatchTeacher
 from app.models.user import User
@@ -107,6 +113,12 @@ def create_exam(
         db, current_user.id, "exam.create", "exam", exam.id,
         details=f"'{exam.name}' in course {exam.course_id}",
     )
+    notify_many(
+        db, admin_ids(db, exclude=current_user.id),
+        f"Exam created: {exam.name}",
+        f"{current_user.name} created exam \"{exam.name}\".",
+        "exam.lifecycle",
+    )
     db.commit()
     db.refresh(exam)
     return attach_creator_names([exam], db)[0]
@@ -118,6 +130,10 @@ def list_exams(
     db: Session = Depends(get_db),
     current_user=teacher_admin,
 ):
+    # Lazy pass: emit expiry notifications for exams whose end
+    # time has passed since the last request.
+    notify_expired_exams(db)
+
     query = db.query(Exam)
     if not is_admin(current_user):
         # Teachers see exams they created plus exams assigned to
@@ -201,6 +217,13 @@ def update_exam(
         db, current_user.id, "exam.update", "exam", exam.id,
         details=f"'{exam.name}' fields: "
                 f"{', '.join(sorted(updates.keys()))}",
+    )
+    notify_many(
+        db, admin_ids(db, exclude=current_user.id),
+        f"Exam updated: {exam.name}",
+        f"{current_user.name} updated exam \"{exam.name}\" "
+        f"({', '.join(sorted(updates.keys()))}).",
+        "exam.lifecycle",
     )
     db.commit()
     db.refresh(exam)

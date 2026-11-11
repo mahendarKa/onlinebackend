@@ -7,6 +7,7 @@ from app.models.exam import Exam
 from app.models.exam_attempt import ExamAttempt, ExamResult
 from app.models.user import User
 from app.services.attempt_service import expire_if_due
+from app.services.activity_service import notify_expired_exams
 from app.utils.dependencies import require_role
 from app.utils.permissions import (
     is_admin,
@@ -28,6 +29,10 @@ def list_exams(
     db: Session = Depends(get_db),
     current_user=teacher_admin,
 ):
+    # Lazy pass: emit expiry notifications for exams whose end
+    # time has passed since the last request.
+    notify_expired_exams(db)
+
     query = db.query(Exam)
     if not is_admin(current_user):
         query = query.filter(
