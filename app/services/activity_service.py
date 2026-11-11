@@ -55,13 +55,19 @@ def notify(
     title: str,
     message: str,
     notification_type: str = "general",
+    link: str = None,
 ):
-    """Queue a notification row; committed with the caller's commit."""
+    """Queue a notification row; committed with the caller's commit.
+
+    `link` is an optional frontend route (e.g. "/exams/4") that the
+    notifications page navigates to when the row is clicked.
+    """
     db.add(Notification(
         user_id=user_id,
         title=title,
         message=message,
         notification_type=notification_type,
+        link=link,
     ))
 
 
@@ -71,9 +77,10 @@ def notify_many(
     title: str,
     message: str,
     notification_type: str = "general",
+    link: str = None,
 ):
     for uid in set(user_ids):
-        notify(db, uid, title, message, notification_type)
+        notify(db, uid, title, message, notification_type, link)
 
 
 def notify_expired_exams(db: Session) -> int:
@@ -132,18 +139,24 @@ def notify_expired_exams(db: Session) -> int:
             ).all()
         }
 
-        recipients = (
-            student_ids | teacher_ids | grader_ids | set(admin_ids(db))
-        )
+        # Students land on their attempt history; staff land on the
+        # monitoring page — one broadcast, role-appropriate links.
+        staff_ids = teacher_ids | grader_ids | set(admin_ids(db))
         if exam.created_by:
-            recipients.add(exam.created_by)
+            staff_ids.add(exam.created_by)
+        staff_ids -= student_ids
+        recipients = student_ids | staff_ids
 
         when = exam.end_time.strftime("%d %b %Y %I:%M %p")
+        title = f"Exam ended: {exam.name}"
+        body = f"\"{exam.name}\" availability ended at {when}."
         notify_many(
-            db, recipients,
-            f"Exam ended: {exam.name}",
-            f"\"{exam.name}\" availability ended at {when}.",
-            "exam.expired",
+            db, student_ids, title, body, "exam.expired",
+            link="/attempts",
+        )
+        notify_many(
+            db, staff_ids, title, body, "exam.expired",
+            link="/monitoring",
         )
         log_audit(
             db, None, "exam.expired", "exam", exam.id,

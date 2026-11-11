@@ -118,6 +118,7 @@ def enroll_student(
             f"Enrolled in batch: {batch.name}",
             f"You were re-enrolled in batch \"{batch.name}\".",
             "batch.enrolled",
+            link="/dashboard",
         )
         db.commit()
         db.refresh(existing)
@@ -136,6 +137,7 @@ def enroll_student(
         f"Enrolled in batch: {batch.name}",
         f"You were enrolled in batch \"{batch.name}\".",
         "batch.enrolled",
+        link="/dashboard",
     )
     db.commit()
     db.refresh(enrollment)

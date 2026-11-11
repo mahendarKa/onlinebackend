@@ -332,6 +332,7 @@ def evaluate_answer(
             f"Score: {result.total_marks} ({result.percentage}%) "
             f"— {result.pass_fail}.",
             "result.published",
+            link="/results",
         )
     db.commit()
 

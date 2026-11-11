@@ -27,6 +27,9 @@ class Notification(TimestampMixin, Base):
     notification_type = Column(
         String(50), nullable=False, default="general"
     )
+    # Optional frontend route the notification should open on click
+    # (e.g. "/dashboard", "/exams/4"). Null = nothing to navigate to.
+    link = Column(String(500), nullable=True)
     is_read = Column(Boolean, nullable=False, default=False)
     created_at = Column(
         DateTime, nullable=False, server_default=func.now()

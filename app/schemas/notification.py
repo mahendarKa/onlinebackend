@@ -10,6 +10,7 @@ class NotificationCreate(BaseModel):
     notification_type: str = Field(
         default="general", max_length=50
     )
+    link: str | None = Field(default=None, max_length=500)
 
 
 class NotificationResponse(BaseModel):
@@ -18,6 +19,7 @@ class NotificationResponse(BaseModel):
     title: str
     message: str
     notification_type: str
+    link: str | None = None
     is_read: bool
     created_at: datetime
 

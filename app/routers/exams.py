@@ -118,6 +118,7 @@ def create_exam(
         f"Exam created: {exam.name}",
         f"{current_user.name} created exam \"{exam.name}\".",
         "exam.lifecycle",
+        link=f"/exams/{exam.id}",
     )
     db.commit()
     db.refresh(exam)
@@ -224,6 +225,7 @@ def update_exam(
         f"{current_user.name} updated exam \"{exam.name}\" "
         f"({', '.join(sorted(updates.keys()))}).",
         "exam.lifecycle",
+        link=f"/exams/{exam.id}",
     )
     db.commit()
     db.refresh(exam)
@@ -500,6 +502,7 @@ def assign_batch(
         f"\"{exam.name}\" was assigned to your batch. "
         f"Duration: {exam.duration_minutes} min.{window}",
         "exam.assigned",
+        link="/dashboard",
     )
 
     # Notify the batch's other teachers that the batch was assigned
@@ -528,6 +531,7 @@ def assign_batch(
             f"Exam assigned to your batch: {exam.name}",
             msg + window,
             "exam.batch_assigned",
+            link=f"/exams/{exam.id}",
         )
 
     log_audit(
@@ -626,6 +630,7 @@ def update_assignment_graders(
             f"You were added as a grader for \"{exam.name}\" "
             f"(batch \"{batch.name if batch else assignment.batch_id}\").",
             "exam.grader_assigned",
+            link="/grading",
         )
 
     log_audit(

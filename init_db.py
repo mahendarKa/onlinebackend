@@ -50,6 +50,9 @@ COLUMN_MIGRATIONS = {
         "first_name": "VARCHAR(100)",
         "last_name": "VARCHAR(100)",
     },
+    "notifications": {
+        "link": "VARCHAR(500)",
+    },
 }
 
 # Columns removed from models — drop them if the table still has them.

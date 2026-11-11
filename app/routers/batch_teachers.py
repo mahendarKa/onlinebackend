@@ -107,6 +107,7 @@ def assign_teacher(
             f"You were re-assigned to batch \"{batch.name}\" "
             "as a teacher.",
             "batch.assigned",
+            link="/batches",
         )
         db.commit()
         db.refresh(existing)
@@ -125,6 +126,7 @@ def assign_teacher(
         f"Assigned to batch: {batch.name}",
         f"You were assigned to batch \"{batch.name}\" as a teacher.",
         "batch.assigned",
+        link="/batches",
     )
     db.commit()
     db.refresh(assignment)
