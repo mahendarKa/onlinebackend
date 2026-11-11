@@ -36,6 +36,7 @@ from app.utils.permissions import (
     teacher_gradeable_exam_ids,
 )
 from app.services.activity_service import log_audit, notify
+from app.services.attempt_service import grade_unmarked
 
 router = APIRouter(prefix="/api/results", tags=["Results"])
 
@@ -331,7 +332,16 @@ def pending_evaluation(
             )
         )
 
-    attempt_ids = [a.id for a in attempts_query.all()]
+    scoped_attempts = attempts_query.all()
+
+    # Backfill auto-grades for attempts closed before grading ran, so
+    # this queue only lists answers that truly need a human and the
+    # attempt's ExamResult reflects the marks it just received.
+    for attempt in scoped_attempts:
+        if grade_unmarked(db, attempt):
+            recalculate_result(attempt, db)
+
+    attempt_ids = [a.id for a in scoped_attempts]
 
     if not attempt_ids:
         return []
@@ -419,6 +429,13 @@ def my_results(
             ExamResult.exam_attempt_id == attempt.id
         ).first()
 
+        # Attempts closed before results were always written get their
+        # marks auto-graded and a result row on first view, so the list
+        # stops showing a misleading pending state.
+        if not result:
+            grade_unmarked(db, attempt)
+            result = recalculate_result(attempt, db)
+
         exam = db.query(Exam).filter(
             Exam.id == attempt.exam_id
         ).first()
@@ -459,9 +476,11 @@ def my_result_detail(
     ).first()
 
     # Legacy attempts submitted before result rows were always written:
-    # compute the result from the stored answers instead of 404-ing, so
-    # the Details dialog can always open.
+    # auto-grade whatever can be graded and compute the result from the
+    # stored answers instead of 404-ing, so the Details dialog can
+    # always open.
     if not result:
+        grade_unmarked(db, attempt)
         result = recalculate_result(attempt, db)
 
     exam = db.query(Exam).filter(Exam.id == attempt.exam_id).first()

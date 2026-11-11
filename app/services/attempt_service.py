@@ -157,3 +157,62 @@ def expire_if_due(db: Session, attempt: ExamAttempt, exam: Exam) -> bool:
         return False
     finalize_attempt(db, attempt, exam)
     return True
+
+
+def grade_unmarked(db: Session, attempt: ExamAttempt) -> int:
+    """Auto-grade every saved answer on the attempt that still has no
+    marks. Returns how many answers were graded.
+
+    Used to backfill attempts that were closed before auto-grading
+    existed (or before their result row was written). Answers whose
+    type needs manual evaluation keep NULL marks so they still
+    surface in the teacher's pending queue; previously-graded and
+    teacher-graded answers are never touched.
+    """
+    exam_items = db.query(ExamQuestion).filter(
+        ExamQuestion.exam_id == attempt.exam_id
+    ).all()
+
+    if not exam_items:
+        return 0
+
+    questions = {
+        q.id: q for q in db.query(Question).filter(
+            Question.id.in_([i.question_id for i in exam_items])
+        ).all()
+    }
+
+    answers_by_question = {
+        a.question_id: a
+        for a in db.query(StudentAnswer).filter(
+            StudentAnswer.exam_attempt_id == attempt.id
+        ).all()
+    }
+
+    graded_count = 0
+
+    for item in exam_items:
+        question = questions.get(item.question_id)
+        answer = answers_by_question.get(item.question_id)
+
+        if not question or not answer:
+            continue
+        if answer.marks_obtained is not None:
+            continue
+        if not answer_has_content(answer):
+            continue
+
+        graded = auto_grade_answer(
+            db, question, answer, Decimal(str(item.marks))
+        )
+        if graded is None:
+            # Manual type — left for the teacher's queue.
+            continue
+
+        answer.is_correct, answer.marks_obtained = graded
+        graded_count += 1
+
+    if graded_count:
+        db.commit()
+
+    return graded_count
