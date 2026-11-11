@@ -96,12 +96,23 @@ def get_exam_feedback(
             detail="Exam not found",
         )
 
-    return (
+    rows = (
         db.query(ExamFeedback)
         .filter(ExamFeedback.exam_id == exam_id)
         .order_by(ExamFeedback.created_at.desc())
         .all()
     )
+
+    if rows:
+        names = {
+            u.id: u.name for u in db.query(User).filter(
+                User.id.in_({r.student_id for r in rows})
+            ).all()
+        }
+        for row in rows:
+            row.student_name = names.get(row.student_id)
+
+    return rows
 
 
 @router.get("/summary/{exam_id}")

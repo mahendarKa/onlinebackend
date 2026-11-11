@@ -14,6 +14,7 @@ class ExamFeedbackResponse(BaseModel):
     exam_id: int
     attempt_id: int
     student_id: int
+    student_name: str | None = None
     rating: int
     comments: str | None
     created_at: datetime
