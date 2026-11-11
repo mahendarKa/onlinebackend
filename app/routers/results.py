@@ -458,11 +458,11 @@ def my_result_detail(
         ExamResult.exam_attempt_id == attempt.id
     ).first()
 
+    # Legacy attempts submitted before result rows were always written:
+    # compute the result from the stored answers instead of 404-ing, so
+    # the Details dialog can always open.
     if not result:
-        raise HTTPException(
-            status_code=404,
-            detail="Result has not been generated yet",
-        )
+        result = recalculate_result(attempt, db)
 
     exam = db.query(Exam).filter(Exam.id == attempt.exam_id).first()
 
