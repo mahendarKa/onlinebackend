@@ -33,6 +33,7 @@ from app.utils.time import utcnow
 from app.utils.permissions import (
     is_admin,
     require_exam_grade,
+    require_exam_view,
     teacher_gradeable_exam_ids,
 )
 from app.services.activity_service import log_audit, notify
@@ -209,6 +210,50 @@ def view_attempt_answers(
         })
 
     return result
+
+
+def _viewable_attempt(attempt_id: int, user, db: Session) -> ExamAttempt:
+    """Attempt the teacher/admin may inspect: must exist, belong to a
+    viewable exam, and be finished (submitted or evaluated)."""
+    attempt = db.query(ExamAttempt).filter(
+        ExamAttempt.id == attempt_id
+    ).first()
+
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+
+    exam = db.query(Exam).filter(Exam.id == attempt.exam_id).first()
+    if exam:
+        require_exam_view(user, exam, db)
+
+    if attempt.status not in ("submitted", "evaluated"):
+        raise HTTPException(
+            status_code=400,
+            detail="Attempt details are only available after submission",
+        )
+    return attempt
+
+
+# TEACHER: RESULT SUMMARY FOR ONE ATTEMPT
+@router.get("/attempts/{attempt_id}/detail")
+def attempt_result_detail(
+    attempt_id: int,
+    db: Session = Depends(get_db),
+    current_user=teacher_admin,
+):
+    attempt = _viewable_attempt(attempt_id, current_user, db)
+    return _result_detail_payload(attempt, db)
+
+
+# TEACHER: PER-QUESTION REVIEW OF ONE ATTEMPT
+@router.get("/attempts/{attempt_id}/review")
+def attempt_result_review(
+    attempt_id: int,
+    db: Session = Depends(get_db),
+    current_user=teacher_admin,
+):
+    attempt = _viewable_attempt(attempt_id, current_user, db)
+    return _result_answers_payload(attempt, db)
 
 
 # TEACHER: EVALUATE ONE ANSWER
@@ -455,22 +500,8 @@ def my_results(
     return output
 
 
-# STUDENT: VIEW ONE OF THEIR OWN RESULTS
-@router.get("/my-results/{attempt_id}")
-def my_result_detail(
-    attempt_id: int,
-    db: Session = Depends(get_db),
-    current_user=student_only,
-):
-    attempt = db.query(ExamAttempt).filter(
-        ExamAttempt.id == attempt_id,
-        ExamAttempt.user_id == current_user.id,
-        ExamAttempt.status.in_(["submitted", "evaluated"]),
-    ).first()
-
-    if not attempt:
-        raise HTTPException(status_code=404, detail="Result not found")
-
+def _result_detail_payload(attempt: ExamAttempt, db: Session) -> dict:
+    """Score/result summary for one finished attempt."""
     result = db.query(ExamResult).filter(
         ExamResult.exam_attempt_id == attempt.id
     ).first()
@@ -541,6 +572,25 @@ def my_result_detail(
         "percentage": result.percentage,
         "pass_fail": result.pass_fail,
     }
+
+
+# STUDENT: VIEW ONE OF THEIR OWN RESULTS
+@router.get("/my-results/{attempt_id}")
+def my_result_detail(
+    attempt_id: int,
+    db: Session = Depends(get_db),
+    current_user=student_only,
+):
+    attempt = db.query(ExamAttempt).filter(
+        ExamAttempt.id == attempt_id,
+        ExamAttempt.user_id == current_user.id,
+        ExamAttempt.status.in_(["submitted", "evaluated"]),
+    ).first()
+
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    return _result_detail_payload(attempt, db)
 
 
 def _correct_payload(question: Question, db: Session, attempt_id=None):
@@ -665,22 +715,9 @@ def _correct_payload(question: Question, db: Session, attempt_id=None):
     return None, None, None, None, None
 
 
-# STUDENT: PER-QUESTION REVIEW OF OWN ATTEMPT
-@router.get("/my-results/{attempt_id}/answers")
-def my_result_answers(
-    attempt_id: int,
-    db: Session = Depends(get_db),
-    current_user=student_only,
-):
-    attempt = db.query(ExamAttempt).filter(
-        ExamAttempt.id == attempt_id,
-        ExamAttempt.user_id == current_user.id,
-        ExamAttempt.status.in_(["submitted", "evaluated"]),
-    ).first()
-
-    if not attempt:
-        raise HTTPException(status_code=404, detail="Result not found")
-
+def _result_answers_payload(attempt: ExamAttempt, db: Session) -> list:
+    """Per-question review rows (student answer + correct answer) for
+    one finished attempt."""
     items = db.query(ExamQuestion).filter(
         ExamQuestion.exam_id == attempt.exam_id
     ).order_by(ExamQuestion.sort_order, ExamQuestion.id).all()
@@ -753,3 +790,22 @@ def my_result_answers(
         })
 
     return output
+
+
+# STUDENT: PER-QUESTION REVIEW OF OWN ATTEMPT
+@router.get("/my-results/{attempt_id}/answers")
+def my_result_answers(
+    attempt_id: int,
+    db: Session = Depends(get_db),
+    current_user=student_only,
+):
+    attempt = db.query(ExamAttempt).filter(
+        ExamAttempt.id == attempt_id,
+        ExamAttempt.user_id == current_user.id,
+        ExamAttempt.status.in_(["submitted", "evaluated"]),
+    ).first()
+
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    return _result_answers_payload(attempt, db)
