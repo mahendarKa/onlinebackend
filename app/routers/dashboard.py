@@ -54,6 +54,15 @@ def admin_dashboard(
         .all()
     )
 
+    # Enrolled students who have not attempted any exam yet.
+    enrolled = {
+        r[0] for r in db.query(BatchStudent.user_id).filter(
+            BatchStudent.is_active == True,  # noqa: E712
+        ).all()
+    }
+    attempted = {r[0] for r in db.query(ExamAttempt.user_id).all()}
+    attempts["pending"] = len(enrolled - attempted)
+
     passed = db.query(ExamResult).filter(
         ExamResult.pass_fail == "PASS"
     ).count()
@@ -107,12 +116,13 @@ def teacher_dashboard(
     batch_ids = teacher_visible_batch_ids(db, current_user.id)
     exam_ids = teacher_exam_ids(db, current_user.id)
 
-    total_students = (
-        db.query(func.count(func.distinct(BatchStudent.user_id))).filter(
+    enrolled_ids = {
+        r[0] for r in db.query(BatchStudent.user_id).filter(
             BatchStudent.batch_id.in_(batch_ids or {0}),
             BatchStudent.is_active == True,  # noqa: E712
-        ).scalar()
-    ) or 0
+        ).all()
+    }
+    total_students = len(enrolled_ids)
 
     attempts = _status_counts(
         db.query(ExamAttempt.status, func.count()).filter(
@@ -120,11 +130,14 @@ def teacher_dashboard(
         ).group_by(ExamAttempt.status).all()
     )
 
-    students_attempted = (
-        db.query(func.count(func.distinct(ExamAttempt.user_id))).filter(
+    attempted_ids = {
+        r[0] for r in db.query(ExamAttempt.user_id).filter(
             ExamAttempt.exam_id.in_(exam_ids or {0})
-        ).scalar()
-    ) or 0
+        ).all()
+    }
+    students_attempted = len(attempted_ids)
+    # My students who have not attempted any of my exams yet.
+    attempts["pending"] = len(enrolled_ids - attempted_ids)
 
     # Scored results, best first — only attempts on this teacher's exams.
     results = (
