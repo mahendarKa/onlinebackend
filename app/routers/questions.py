@@ -53,6 +53,7 @@ from app.services.question_change import (
     attempted_exam_ids_for_question,
     create_change_request,
     pending_request_for,
+    question_snapshot,
     resolve_request,
 )
 
@@ -389,6 +390,12 @@ def _request_dict(request: QuestionChangeRequest, db: Session) -> dict:
         "payload": request.payload,
         "review_note": request.review_note,
         "created_at": request.created_at,
+        # Current state for the before/after diff — only meaningful
+        # while pending (resolved requests reflect applied changes).
+        "current": (
+            question_snapshot(db, question)
+            if question and request.status == "pending" else None
+        ),
     }
 
 

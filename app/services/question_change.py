@@ -420,3 +420,161 @@ def resolve_request(db, request: QuestionChangeRequest,
         "question.change_resolved",
         link="/questions",
     )
+
+
+# --------------------------------------------------
+# Current-state snapshot (for the approvals diff)
+# --------------------------------------------------
+#
+# Emits the question's current state in the same shape as the staged
+# ``full_state`` payload so the approvals UI can diff old vs new.
+
+def question_snapshot(db, question: Question) -> dict:
+    snap = {
+        "base": {
+            "category_id": question.category_id,
+            "name": question.name,
+            "question_text": question.question_text,
+            "default_mark": float(question.default_mark or 0),
+        }
+    }
+
+    rows = db.query(QuestionOption).filter(
+        QuestionOption.question_id == question.id
+    ).order_by(QuestionOption.sort_order).all()
+    if rows:
+        snap["options"] = [{
+            "option_text": o.option_text,
+            "image_url": o.image_url,
+            "is_correct": o.is_correct,
+            "fraction": float(o.fraction or 0),
+            "sort_order": o.sort_order,
+        } for o in rows]
+
+    row = db.query(QuestionTrueFalse).filter(
+        QuestionTrueFalse.question_id == question.id
+    ).first()
+    if row:
+        snap["truefalse"] = {"true_answer": row.true_answer}
+
+    row = db.query(QuestionShortAnswer).filter(
+        QuestionShortAnswer.question_id == question.id
+    ).first()
+    if row:
+        snap["shortanswer"] = {
+            "answer_text": row.answer_text,
+            "case_sensitive": row.case_sensitive,
+        }
+
+    row = db.query(QuestionNumerical).filter(
+        QuestionNumerical.question_id == question.id
+    ).first()
+    if row:
+        snap["numerical"] = {
+            "answer_value": float(row.answer_value or 0),
+            "tolerance": float(row.tolerance or 0),
+        }
+
+    row = db.query(QuestionEssay).filter(
+        QuestionEssay.question_id == question.id
+    ).first()
+    if row:
+        snap["essay"] = {"max_words": row.max_words}
+
+    row = db.query(QuestionMultiAnswer).filter(
+        QuestionMultiAnswer.question_id == question.id
+    ).first()
+    if row:
+        snap["multianswer"] = {
+            "answer_text": row.answer_text,
+            "answer_format": row.answer_format,
+        }
+
+    rows = db.query(QuestionMatch).filter(
+        QuestionMatch.question_id == question.id
+    ).order_by(QuestionMatch.sort_order).all()
+    if rows:
+        snap["match"] = [{
+            "sub_question": m.sub_question,
+            "sub_answer": m.sub_answer,
+            "sort_order": m.sort_order,
+        } for m in rows]
+
+    rows = db.query(QuestionGapSelect).filter(
+        QuestionGapSelect.question_id == question.id
+    ).order_by(
+        QuestionGapSelect.blank_no, QuestionGapSelect.sort_order
+    ).all()
+    if rows:
+        snap["gapselect"] = [{
+            "blank_no": g.blank_no,
+            "option_text": g.option_text,
+            "is_correct": g.is_correct,
+            "sort_order": g.sort_order,
+        } for g in rows]
+
+    rows = db.query(QuestionOrdering).filter(
+        QuestionOrdering.question_id == question.id
+    ).order_by(QuestionOrdering.position).all()
+    if rows:
+        snap["ordering"] = [{
+            "item_text": o.item_text,
+            "position": o.position,
+        } for o in rows]
+
+    row = db.query(QuestionCalculated).filter(
+        QuestionCalculated.question_id == question.id
+    ).first()
+    if row:
+        snap["calculated"] = {
+            "formula": row.formula,
+            "tolerance": float(row.tolerance or 0),
+            "units": row.units,
+            "datasets": row.datasets,
+        }
+
+    row = db.query(QuestionDescription).filter(
+        QuestionDescription.question_id == question.id
+    ).first()
+    if row:
+        snap["description"] = {"content": row.content}
+
+    rows = db.query(QuestionImage).filter(
+        QuestionImage.question_id == question.id
+    ).order_by(QuestionImage.position).all()
+    if rows:
+        snap["images"] = [{
+            "image_url": i.image_url,
+            "alt_text": i.alt_text,
+            "position": i.position,
+        } for i in rows]
+
+    row = db.query(QuestionParagraph).filter(
+        QuestionParagraph.question_id == question.id
+    ).first()
+    if row:
+        snap["paragraph"] = {
+            "question_ids": row.child_question_ids or [],
+        }
+
+    coding = db.query(CodingQuestion).filter(
+        CodingQuestion.question_id == question.id
+    ).first()
+    if coding:
+        cases = db.query(CodingTestCase).filter(
+            CodingTestCase.coding_question_id == coding.id
+        ).order_by(CodingTestCase.sort_order).all()
+        snap["coding"] = {
+            "language": coding.language,
+            "starter_code": coding.starter_code,
+            "time_limit": coding.time_limit,
+            "test_cases": [{
+                "input_text": tc.input_text,
+                "expected_output": tc.expected_output,
+                "is_hidden": tc.is_hidden,
+                "marks": float(tc.marks or 0),
+                "sort_order": tc.sort_order,
+            } for tc in cases],
+        }
+
+    return snap
