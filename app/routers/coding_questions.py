@@ -13,9 +13,13 @@ from app.schemas.coding_question import (
     CodingTestCaseUpdate,
     CodingTestCaseResponse,
 )
-from app.utils.dependencies import require_role
+from app.utils.dependencies import require_role, question_edit_guard
 
-router = APIRouter(prefix="/api/questions", tags=["Coding Questions"])
+router = APIRouter(
+    prefix="/api/questions",
+    tags=["Coding Questions"],
+    dependencies=[Depends(question_edit_guard)],
+)
 
 teacher_admin = Depends(require_role("admin", "teacher"))
 

@@ -9,12 +9,13 @@ from app.schemas.question_image import (
     QuestionImageUpdate,
     QuestionImageResponse
 )
-from app.utils.dependencies import require_role
+from app.utils.dependencies import require_role, question_edit_guard
 
 
 router = APIRouter(
     prefix="/api/questions",
-    tags=["Question Images"]
+    tags=["Question Images"],
+    dependencies=[Depends(question_edit_guard)],
 )
 
 

@@ -9,12 +9,13 @@ from app.schemas.question_calculated import (
     QuestionCalculatedUpdate,
     QuestionCalculatedResponse
 )
-from app.utils.dependencies import require_role
+from app.utils.dependencies import require_role, question_edit_guard
 
 
 router = APIRouter(
     prefix="/api/questions",
-    tags=["Question Calculated"]
+    tags=["Question Calculated"],
+    dependencies=[Depends(question_edit_guard)],
 )
 
 

@@ -9,12 +9,13 @@ from app.schemas.question_description import (
     QuestionDescriptionUpdate,
     QuestionDescriptionResponse
 )
-from app.utils.dependencies import require_role
+from app.utils.dependencies import require_role, question_edit_guard
 
 
 router = APIRouter(
     prefix="/api/questions",
-    tags=["Question Description"]
+    tags=["Question Description"],
+    dependencies=[Depends(question_edit_guard)],
 )
 
 

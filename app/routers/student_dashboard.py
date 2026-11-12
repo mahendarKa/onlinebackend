@@ -8,6 +8,7 @@ from app.models.batch_student import BatchStudent
 from app.models.exam_attempt import ExamAttempt
 from app.services.activity_service import notify_expired_exams
 from app.services.attempt_service import expire_if_due
+from app.services.question_change import exams_with_pending_questions
 from app.utils.dependencies import require_role
 from app.utils.time import utcnow
 
@@ -55,6 +56,10 @@ def get_student_exams(
         Exam.id.in_(exam_ids),
         Exam.is_active == True,
     ).order_by(Exam.id.desc()).all()
+
+    # Exams containing a question with a pending approval request are
+    # blocked for students until an admin resolves it.
+    pending_approval_ids = exams_with_pending_questions(db, exam_ids)
 
     output = []
 
@@ -112,6 +117,8 @@ def get_student_exams(
 
         if in_progress:
             status = "in_progress"
+        elif exam.id in pending_approval_ids:
+            status = "pending_approval"
         elif start_time and now < start_time:
             status = "upcoming"
         elif end_time and now >= end_time:

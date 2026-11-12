@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -86,3 +86,28 @@ def require_role(*allowed_roles):
         return current_user
 
     return role_checker
+
+
+def question_edit_guard(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Router-level guard for question write endpoints.
+
+    Any POST/PUT/PATCH/DELETE carrying a ``question_id`` path param is
+    rejected while the question is locked (its exam has attempts) or
+    frozen (a change request is pending admin approval).
+    """
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return
+
+    question_id = request.path_params.get("question_id")
+    if question_id is None:
+        return
+
+    # Deferred import — services pull in models that depend on this file
+    # only indirectly, but keeping it local avoids import cycles.
+    from app.services.question_change import ensure_question_editable
+
+    ensure_question_editable(db, int(question_id), current_user)

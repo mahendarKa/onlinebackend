@@ -20,6 +20,7 @@ from app.models.question_paragraph import QuestionParagraph
 from app.models.question_gapselect import QuestionGapSelect
 from app.models.question_ordering import QuestionOrdering
 from app.models.coding_question import CodingQuestion, CodingTestCase
+from app.models.question_change_request import QuestionChangeRequest
 from app.models.exam import Exam, ExamQuestion, ExamBatch, ExamGrader
 from app.models.exam_attempt import ExamAttempt, StudentAnswer, ExamResult
 from app.models.notification import Notification

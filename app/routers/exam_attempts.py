@@ -40,6 +40,10 @@ from app.services.evaluation_service import (
 )
 from app.services.code_executor import run_test_cases
 from app.services.attempt_service import finalize_attempt
+from app.services.question_change import (
+    EXAM_PENDING_MSG,
+    exams_with_pending_questions,
+)
 
 router = APIRouter(prefix="/api/student/exams", tags=["Student Exam Attempts"])
 student_only = Depends(require_role("student"))
@@ -176,6 +180,11 @@ def start_exam(
             status_code=400,
             detail="No questions have been added to this exam",
         )
+
+    # A question whose edit/delete awaits admin approval freezes every
+    # un-attempted exam containing it.
+    if exams_with_pending_questions(db, [exam_id]):
+        raise HTTPException(status_code=400, detail=EXAM_PENDING_MSG)
 
     deadline = now + timedelta(minutes=exam.duration_minutes)
     if exam.end_time:

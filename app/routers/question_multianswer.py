@@ -9,12 +9,13 @@ from app.schemas.question_multianswer import (
     QuestionMultiAnswerUpdate,
     QuestionMultiAnswerResponse
 )
-from app.utils.dependencies import require_role
+from app.utils.dependencies import require_role, question_edit_guard
 
 
 router = APIRouter(
     prefix="/api/questions",
-    tags=["Question Multi-answer"]
+    tags=["Question Multi-answer"],
+    dependencies=[Depends(question_edit_guard)],
 )
 
 

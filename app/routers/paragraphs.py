@@ -14,12 +14,17 @@ from app.schemas.paragraph import (
     ParagraphQuestionLinkResponse,
     QuestionParagraphLinkSet,
 )
-from app.utils.dependencies import get_current_user, require_role
+from app.utils.dependencies import (
+    get_current_user,
+    question_edit_guard,
+    require_role,
+)
 
 
 router = APIRouter(
     prefix="/api/paragraphs",
-    tags=["Paragraph Questions"]
+    tags=["Paragraph Questions"],
+    dependencies=[Depends(question_edit_guard)],
 )
 
 

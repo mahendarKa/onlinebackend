@@ -43,10 +43,21 @@ from app.models.exam_attempt import (
     StudentAnswer,
 )
 from app.models.coding_question import CodingQuestion, CodingTestCase
+from app.models.question_change_request import QuestionChangeRequest
 from app.models.user import User
 from app.services.activity_service import log_audit
+from app.services.question_change import (
+    ATTEMPTED_EXAM_MSG,
+    PENDING_MSG,
+    apply_change_request,
+    attempted_exam_ids_for_question,
+    create_change_request,
+    pending_request_for,
+    resolve_request,
+)
 
 from app.schemas.question import (
+    QuestionChangeRequestCreate,
     QuestionCreate,
     QuestionUpdate,
     QuestionResponse,
@@ -156,8 +167,23 @@ def get_questions(
         u.id: u.name
         for u in db.query(User.id, User.name).filter(User.id.in_(ids)).all()
     } if ids else {}
+    pending_ids = {
+        r.question_id
+        for r in db.query(QuestionChangeRequest.question_id).filter(
+            QuestionChangeRequest.status == "pending"
+        ).all()
+    }
+    attempted_ids = {
+        r.question_id
+        for r in db.query(ExamQuestion.question_id).join(
+            ExamAttempt,
+            ExamAttempt.exam_id == ExamQuestion.exam_id,
+        ).distinct().all()
+    }
     for q in questions:
         q.creator_name = names.get(q.created_by)
+        q.has_pending_change = q.id in pending_ids
+        q.in_attempted_exam = q.id in attempted_ids
     return questions
 
 
@@ -339,6 +365,177 @@ def search_questions(
 
 
 # --------------------------------------------------
+# QUESTION CHANGE REQUESTS — ADMIN APPROVAL
+# --------------------------------------------------
+# Declared before GET /{question_id} so the literal "change-requests"
+# path segment is not captured as a question id.
+
+def _request_dict(request: QuestionChangeRequest, db: Session) -> dict:
+    question = db.query(Question).filter(
+        Question.id == request.question_id
+    ).first()
+    requester = db.query(User).filter(
+        User.id == request.requested_by
+    ).first()
+    return {
+        "id": request.id,
+        "question_id": request.question_id,
+        "question_name": question.name if question else None,
+        "question_type": question.type if question else None,
+        "action": request.action,
+        "status": request.status,
+        "requested_by": request.requested_by,
+        "requester_name": requester.name if requester else None,
+        "payload": request.payload,
+        "review_note": request.review_note,
+        "created_at": request.created_at,
+    }
+
+
+@router.get("/change-requests/count")
+def pending_change_request_count(
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    count = db.query(QuestionChangeRequest).filter(
+        QuestionChangeRequest.status == "pending"
+    ).count()
+    return {"count": count}
+
+
+@router.get("/change-requests")
+def list_change_requests(
+    status_filter: str | None = Query(default=None, alias="status"),
+    current_user: User = Depends(
+        require_role("admin", "teacher")
+    ),
+    db: Session = Depends(get_db),
+):
+    query = db.query(QuestionChangeRequest)
+    # Teachers only see their own requests; admins see everything.
+    if current_user.role not in ("admin", "superadmin"):
+        query = query.filter(
+            QuestionChangeRequest.requested_by == current_user.id
+        )
+    if status_filter:
+        query = query.filter(
+            QuestionChangeRequest.status == status_filter
+        )
+    requests = query.order_by(
+        QuestionChangeRequest.id.desc()
+    ).all()
+    return [_request_dict(r, db) for r in requests]
+
+
+@router.post("/{question_id}/change-request", status_code=201)
+def request_question_change(
+    question_id: int,
+    data: QuestionChangeRequestCreate,
+    current_user: User = Depends(
+        require_role("admin", "teacher")
+    ),
+    db: Session = Depends(get_db),
+):
+    question = db.query(Question).filter(
+        Question.id == question_id
+    ).first()
+    if not question:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question not found",
+        )
+
+    if data.action not in ("update", "delete"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="action must be 'update' or 'delete'",
+        )
+
+    if attempted_exam_ids_for_question(db, question_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ATTEMPTED_EXAM_MSG,
+        )
+    if pending_request_for(db, question_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=PENDING_MSG,
+        )
+
+    request = create_change_request(
+        db, question, data.action, data.payload, current_user,
+    )
+    db.commit()
+    return {
+        "id": request.id,
+        "status": "pending",
+        "message": "Change sent for admin approval",
+    }
+
+
+@router.post("/change-requests/{request_id}/approve")
+def approve_change_request(
+    request_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    request = db.query(QuestionChangeRequest).filter(
+        QuestionChangeRequest.id == request_id
+    ).first()
+    if not request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Change request not found",
+        )
+    if request.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Request already {request.status}",
+        )
+
+    # Re-check the lock: an exam containing this question may have been
+    # attempted since the request was created.
+    if attempted_exam_ids_for_question(db, request.question_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This question is now part of an exam that students "
+                   "have attempted — reject the request instead.",
+        )
+
+    apply_change_request(db, request)
+    resolve_request(db, request, "approved", current_user)
+    db.commit()
+    return {"message": "Change approved"}
+
+
+@router.post("/change-requests/{request_id}/reject")
+def reject_change_request(
+    request_id: int,
+    data: dict | None = None,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    request = db.query(QuestionChangeRequest).filter(
+        QuestionChangeRequest.id == request_id
+    ).first()
+    if not request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Change request not found",
+        )
+    if request.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Request already {request.status}",
+        )
+
+    note = (data or {}).get("note")
+    resolve_request(db, request, "rejected", current_user, note)
+    db.commit()
+    return {"message": "Change rejected"}
+
+
+# --------------------------------------------------
 # GET QUESTION BY ID
 # --------------------------------------------------
 
@@ -363,6 +560,12 @@ def get_question(
             detail="Question not found",
         )
 
+    question.has_pending_change = bool(
+        pending_request_for(db, question_id)
+    )
+    question.in_attempted_exam = bool(
+        attempted_exam_ids_for_question(db, question_id)
+    )
     return question
 
 
@@ -393,6 +596,32 @@ def update_question(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Question not found",
         )
+
+    # Locked while an exam containing it has attempts; frozen while a
+    # change request is pending admin approval.
+    if attempted_exam_ids_for_question(db, question_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ATTEMPTED_EXAM_MSG,
+        )
+    if pending_request_for(db, question_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=PENDING_MSG,
+        )
+
+    # Non-admin edits are queued for approval instead of applied.
+    if current_user.role not in ("admin", "superadmin"):
+        create_change_request(
+            db,
+            question,
+            "update",
+            {"base": question_data.model_dump(exclude_unset=True)},
+            current_user,
+        )
+        db.commit()
+        question.pending_request = True
+        return question
 
     if question_data.category_id is not None:
         category = (
@@ -471,6 +700,38 @@ def delete_question(
             detail="Question not found",
         )
 
+    # Locked while an exam containing it has attempts; frozen while a
+    # change request is pending admin approval.
+    if attempted_exam_ids_for_question(db, question_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ATTEMPTED_EXAM_MSG,
+        )
+    if pending_request_for(db, question_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=PENDING_MSG,
+        )
+
+    # Non-admin deletions are queued for approval instead of applied.
+    if current_user.role not in ("admin", "superadmin"):
+        create_change_request(
+            db, question, "delete", None, current_user,
+        )
+        db.commit()
+        return {
+            "message": "Deletion sent for admin approval",
+            "pending": True,
+        }
+
+    result = perform_question_delete(db, question)
+    return {"message": "Question deleted successfully", **result}
+
+
+def perform_question_delete(db: Session, question: Question):
+    """Soft-delete a question plus its cascade — shared by the direct
+    admin delete and by approval of a delete change-request."""
+    question_id = question.id
     question.is_active = False
 
     # ---------- cascade the delete ----------
@@ -539,7 +800,6 @@ def delete_question(
         recalculate_result(attempt, db)
 
     return {
-        "message": "Question deleted successfully",
         "removed_from_exams": len(exam_ids),
         "results_recalculated": len(finished),
     }

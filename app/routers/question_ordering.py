@@ -10,12 +10,13 @@ from app.schemas.question_ordering import (
     OrderingItemResponse,
     OrderingBulkCreate,
 )
-from app.utils.dependencies import require_role
+from app.utils.dependencies import require_role, question_edit_guard
 
 
 router = APIRouter(
     prefix="/api/questions",
     tags=["Question Ordering"],
+    dependencies=[Depends(question_edit_guard)],
 )
 
 

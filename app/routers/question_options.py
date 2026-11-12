@@ -10,12 +10,13 @@ from app.schemas.question_option import (
     QuestionOptionResponse,
     QuestionOptionBulkCreate
 )
-from app.utils.dependencies import require_role
+from app.utils.dependencies import require_role, question_edit_guard
 
 
 router = APIRouter(
     prefix="/api/questions",
-    tags=["Question Options"]
+    tags=["Question Options"],
+    dependencies=[Depends(question_edit_guard)],
 )
 
 
