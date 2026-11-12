@@ -17,5 +17,5 @@ PROCTOR_EVENT_TYPES = {
     "context_menu", "fullscreen_exit",
     # Camera / AI signals
     "no_face", "multiple_faces", "looking_away",
-    "camera_denied", "ai_unavailable",
+    "camera_denied", "camera_lost", "ai_unavailable",
 }
