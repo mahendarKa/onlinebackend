@@ -4,10 +4,16 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.models.exam import Exam, ExamQuestion
+from app.models.batch_teacher import BatchTeacher
+from app.models.exam import Exam, ExamBatch, ExamGrader, ExamQuestion
 from app.models.exam_attempt import ExamAttempt, StudentAnswer, ExamResult
 from app.models.question import Question
-from app.services.activity_service import log_audit
+from app.models.user import User
+from app.services.activity_service import (
+    admin_ids,
+    log_audit,
+    notify_many,
+)
 from app.services.evaluation_service import (
     answer_has_content,
     auto_grade_answer,
@@ -140,6 +146,45 @@ def finalize_attempt(db: Session, attempt: ExamAttempt, exam: Exam) -> dict:
                 f"{attempted}/{total_questions} attempted, "
                 f"{scored_marks} marks",
     )
+
+    # Let staff know a submission arrived: batch teachers, selected
+    # graders, the exam creator and all admin/superadmin users.
+    student = db.query(User).filter(User.id == attempt.user_id).first()
+    student_name = (
+        student.name if student and student.name
+        else f"Student {attempt.user_id}"
+    )
+
+    assignments = db.query(ExamBatch).filter(
+        ExamBatch.exam_id == exam.id
+    ).all()
+    batch_ids = [a.batch_id for a in assignments]
+    assignment_ids = [a.id for a in assignments]
+
+    teacher_ids = {
+        r.user_id for r in db.query(BatchTeacher.user_id).filter(
+            BatchTeacher.batch_id.in_(batch_ids or {0}),
+            BatchTeacher.is_active.is_(True),
+        ).all()
+    }
+    grader_ids = {
+        r.user_id for r in db.query(ExamGrader.user_id).filter(
+            ExamGrader.exam_batch_id.in_(assignment_ids or {0}),
+        ).all()
+    }
+    staff_ids = teacher_ids | grader_ids | set(admin_ids(db))
+    if exam.created_by:
+        staff_ids.add(exam.created_by)
+    staff_ids.discard(attempt.user_id)
+
+    notify_many(
+        db, staff_ids,
+        f"Exam submitted: {exam.name}",
+        f"Exam submitted by {student_name} for \"{exam.name}\".",
+        "exam.submitted",
+        link="/monitoring",
+    )
+
     db.commit()
 
     return {

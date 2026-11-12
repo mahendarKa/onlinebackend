@@ -457,6 +457,21 @@ def pending_evaluation(
     return output
 
 
+# TEACHER: HOW MANY ANSWERS ARE WAITING FOR MANUAL EVALUATION
+@router.get("/pending-evaluation-count")
+def pending_evaluation_count(
+    db: Session = Depends(get_db),
+    current_user=teacher_admin,
+):
+    """Badge number for the sidebar's Grading link — the same items the
+    pending-evaluation queue would list, without building payloads."""
+    return {
+        "count": len(pending_evaluation(
+            exam_id=None, db=db, current_user=current_user,
+        ))
+    }
+
+
 # STUDENT: VIEW OWN RESULTS
 @router.get("/my-results")
 def my_results(
