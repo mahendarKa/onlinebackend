@@ -29,6 +29,8 @@ class Exam(TimestampMixin, Base):
     end_time = Column(DateTime, nullable=True)
     attempts_allowed = Column(Integer, nullable=True, default=1)
     shuffle_questions = Column(Boolean, default=False)
+    # Webcam/event proctoring enforced in the exam player when set.
+    is_proctored = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
 
     @property

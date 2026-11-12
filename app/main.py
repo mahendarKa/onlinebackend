@@ -60,6 +60,7 @@ from app.routers import result_pdf
 from app.routers import attempt_history
 from app.routers import exam_feedback
 from app.routers import uploads
+from app.routers import proctoring
 # @asynccontextmanager
 # async def lifespan(_app: FastAPI):
 #     # create_all only builds missing tables; it never drops or alters
@@ -188,6 +189,7 @@ app.include_router(result_pdf.router)
 app.include_router(attempt_history.router)
 app.include_router(exam_feedback.router)
 app.include_router(uploads.router)
+app.include_router(proctoring.router)
 @app.get("/")
 def root():
     return {

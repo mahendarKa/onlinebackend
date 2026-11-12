@@ -143,6 +143,7 @@ def get_student_exams(
             "end_time": end_time,
             "attempts_allowed": attempts_allowed,
             "attempts_used": attempts_used,
+            "is_proctored": bool(exam.is_proctored),
             "completed_attempts": len(completed_attempts),
             "status": status,
         })
