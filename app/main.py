@@ -53,6 +53,7 @@ from app.routers.exam_monitoring import router as exam_monitoring_router
 from app.routers.exam_schedule import router as exam_schedule_router
 from app.routers.notifications import router as notifications_router
 from app.routers.exam_analytics import router as exam_analytics_router
+from app.routers.dashboard import router as dashboard_router
 from app.routers.audit_logs import router as audit_logs_router
 from app.routers import result_export
 from app.routers import result_pdf
@@ -180,6 +181,7 @@ app.include_router(exam_monitoring_router)
 app.include_router(exam_schedule_router)
 app.include_router(notifications_router)
 app.include_router(exam_analytics_router)
+app.include_router(dashboard_router)
 app.include_router(audit_logs_router)
 app.include_router(result_export.router)
 app.include_router(result_pdf.router)
