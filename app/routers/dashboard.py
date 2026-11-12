@@ -173,6 +173,10 @@ def teacher_dashboard(
         "attempts": attempts,
         "results": {"passed": passed, "failed": failed},
         "score_distribution": distribution,
-        "top_scorer": scorer(results[0]) if results else None,
-        "lowest_scorer": scorer(results[-1]) if len(results) > 1 else None,
+        # Up to 10 best and 10 worst (ascending) scorers.
+        "top_scorers": [scorer(entry) for entry in results[:10]],
+        "lowest_scorers": (
+            [scorer(entry) for entry in reversed(results[-10:])]
+            if len(results) > 1 else []
+        ),
     }
