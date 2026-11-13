@@ -51,7 +51,11 @@ def admin_dashboard(
 
     roles_q = db.query(User.role, func.count())
     if hide_elevated:
-        roles_q = roles_q.filter(visible_users)
+        # Role donut shows only teachers and students — not even
+        # the viewer's own admin account.
+        roles_q = roles_q.filter(
+            User.role.in_(("teacher", "student"))
+        )
     users_by_role = {
         role: count
         for role, count in roles_q.group_by(User.role).all()
