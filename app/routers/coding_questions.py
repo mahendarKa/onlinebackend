@@ -13,6 +13,7 @@ from app.schemas.coding_question import (
     CodingTestCaseUpdate,
     CodingTestCaseResponse,
 )
+from app.services.code_executor import detect_toolchains
 from app.utils.dependencies import require_role, question_edit_guard
 
 router = APIRouter(
@@ -39,6 +40,14 @@ def get_coding_question_parent(question_id: int, db: Session):
         )
 
     return question
+
+
+# WHICH LANGUAGES CAN ACTUALLY RUN ON THIS HOST
+@router.get("/coding/toolchains")
+def list_toolchains(current_user=teacher_admin):
+    """language -> {available, missing} for the coding-language
+    dropdown — teachers only pick toolchains the server has."""
+    return detect_toolchains()
 
 
 def get_coding_config(question_id: int, db: Session):

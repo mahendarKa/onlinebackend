@@ -44,6 +44,38 @@ SUPPORTED_LANGUAGES = sorted({
     "c", "cpp", "csharp", "php", "ruby", "go",
 })
 
+# Binaries each language needs on PATH. Outer list = required tools;
+# a tuple means "any one of these" (csharp compiles via csc OR the
+# dotnet SDK). html needs nothing — it's validated, not executed.
+TOOLCHAIN_BINS = {
+    "python": ["python"],
+    "javascript": ["node"],
+    "java": ["javac", "java"],
+    "html": [],
+    "c": ["gcc"],
+    "cpp": ["g++"],
+    "csharp": [("csc", "dotnet")],
+    "php": ["php"],
+    "ruby": ["ruby"],
+    "go": ["go"],
+}
+
+
+def detect_toolchains() -> dict:
+    """language -> {"available": bool, "missing": [tool names]}.
+
+    Lets the teacher UI gray out languages this host can't run.
+    """
+    report = {}
+    for lang, required in TOOLCHAIN_BINS.items():
+        missing = []
+        for tool in required:
+            names = (tool,) if isinstance(tool, str) else tool
+            if not any(shutil.which(n) for n in names):
+                missing.append("/".join(names))
+        report[lang] = {"available": not missing, "missing": missing}
+    return report
+
 
 def _exe(workdir: str, name: str = "main") -> str:
     """Compiled binary path — Windows needs the .exe suffix."""
@@ -371,18 +403,44 @@ def _prepare(language: str, code: str, workdir: str):
         return lambda wd: [exe], None
 
     if language == "csharp":
-        src = "main.cs"
+        src = "Program.cs"
         with open(f"{workdir}/{src}", "w", encoding="utf-8") as fh:
             fh.write(code)
-        exe = _exe(workdir)
-        rc, _out, err, timed_out = _run_cmd(
-            ["csc", f"/out:{exe}", src], workdir, "", COMPILE_TIMEOUT
+        if shutil.which("csc"):
+            exe = _exe(workdir)
+            rc, _out, err, timed_out = _run_cmd(
+                ["csc", f"/out:{exe}", src], workdir, "", COMPILE_TIMEOUT
+            )
+            if timed_out:
+                return None, "Compilation timed out"
+            if rc != 0:
+                return None, (
+                    f"Compilation failed:\n{err.strip() or 'csc error'}"
+                )
+            return lambda wd: [exe], None
+        if not shutil.which("dotnet"):
+            return None, "Toolchain not installed: csc/dotnet (C#)"
+        # .NET SDK path — minimal project compiled once, run the dll.
+        with open(f"{workdir}/app.csproj", "w", encoding="utf-8") as fh:
+            fh.write(
+                '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>'
+                "<OutputType>Exe</OutputType>"
+                "<TargetFramework>net8.0</TargetFramework>"
+                "<ImplicitUsings>disable</ImplicitUsings>"
+                "<Nullable>disable</Nullable>"
+                "</PropertyGroup></Project>"
+            )
+        rc, out, err, timed_out = _run_cmd(
+            ["dotnet", "build", "-c", "Release", "-o", "out", "--nologo"],
+            workdir, "", COMPILE_TIMEOUT,
         )
         if timed_out:
             return None, "Compilation timed out"
         if rc != 0:
-            return None, f"Compilation failed:\n{err.strip() or 'csc error'}"
-        return lambda wd: [exe], None
+            detail = err.strip() or out.strip() or "dotnet build error"
+            return None, f"Compilation failed:\n{detail}"
+        dll = os.path.join(workdir, "out", "app.dll")
+        return lambda wd: ["dotnet", dll], None
 
     if language == "php":
         src = "main.php"
