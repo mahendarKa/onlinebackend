@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -67,18 +67,16 @@ def admin_dashboard(
     attempted = {r[0] for r in db.query(ExamAttempt.user_id).all()}
     attempts["pending"] = len(enrolled - attempted)
 
-    passed = db.query(ExamResult).filter(
-        ExamResult.pass_fail == "PASS"
-    ).count()
-    failed = db.query(ExamResult).filter(
-        ExamResult.pass_fail == "FAIL"
-    ).count()
-    # Submitted attempts still awaiting evaluation have no result row.
-    has_result = select(ExamResult.exam_attempt_id)
-    pending = db.query(ExamAttempt).filter(
-        ExamAttempt.status == "submitted",
-        ExamAttempt.id.not_in(has_result),
-    ).count()
+    # Results are created at submit time — attempts awaiting manual
+    # grading carry pass_fail "PENDING".
+    pf_counts = {
+        row[0]: row[1] for row in db.query(
+            ExamResult.pass_fail, func.count()
+        ).group_by(ExamResult.pass_fail).all()
+    }
+    passed = pf_counts.get("PASS", 0)
+    failed = pf_counts.get("FAIL", 0)
+    pending = pf_counts.get("PENDING", 0)
 
     # Attempts started per day over the last 7 days.
     today = utcnow().date()
@@ -178,18 +176,11 @@ def teacher_dashboard(
             "pass_fail": result.pass_fail,
         }
 
+    # pass_fail "PENDING" = submitted but still awaiting manual
+    # grading (essay/coding answers). It must not count as failed.
     passed = sum(1 for r, _, _ in results if r.pass_fail == "PASS")
-    failed = len(results) - passed
-
-    # Submitted attempts on this teacher's exams still awaiting
-    # evaluation (essay/coding answers needing manual grading).
-    pending = db.query(ExamAttempt).filter(
-        ExamAttempt.exam_id.in_(exam_ids or {0}),
-        ExamAttempt.status == "submitted",
-        ExamAttempt.id.not_in(
-            select(ExamResult.exam_attempt_id)
-        ),
-    ).count()
+    pending = sum(1 for r, _, _ in results if r.pass_fail == "PENDING")
+    failed = len(results) - passed - pending
 
     ranges = [("0-39%", 0, 40), ("40-59%", 40, 60),
               ("60-79%", 60, 80), ("80-100%", 80, 100.01)]
