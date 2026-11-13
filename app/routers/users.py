@@ -368,11 +368,15 @@ def get_users(
         query = query.filter(User.role == role)
 
     # Only a superadmin sees admin-level accounts. Everyone else
-    # gets teachers and students — even role=admin returns nothing.
+    # gets teachers and students plus their own row — even
+    # role=admin returns at most themselves.
     if current_user.role != "superadmin":
-        query = query.filter(User.role.in_(("teacher", "student")))
+        query = query.filter(
+            User.role.in_(("teacher", "student"))
+            | (User.id == current_user.id)
+        )
 
-    return query.order_by(User.id).all()
+    return query.order_by(User.id.desc()).all()
 
 
 # --------------------------------------------------

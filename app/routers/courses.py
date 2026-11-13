@@ -87,7 +87,7 @@ def get_courses(
     db: Session = Depends(get_db)
 ):
 
-    courses = db.query(Course).all()
+    courses = db.query(Course).order_by(Course.id.desc()).all()
     ids = {c.created_by for c in courses if c.created_by}
     names = {
         u.id: u.name
@@ -116,11 +116,13 @@ def get_my_courses(
     """Admins get all courses; teachers get only courses covered by
     batches they teach or created."""
     if is_admin(current_user):
-        return db.query(Course).all()
+        return db.query(Course).order_by(Course.id.desc()).all()
     course_ids = teacher_course_ids(db, current_user.id)
     if not course_ids:
         return []
-    return db.query(Course).filter(Course.id.in_(course_ids)).all()
+    return db.query(Course).filter(
+        Course.id.in_(course_ids)
+    ).order_by(Course.id.desc()).all()
 
 
 # --------------------------------------------------

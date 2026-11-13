@@ -131,7 +131,7 @@ def get_batches(
         }
         query = query.filter(Batch.id.in_(ids or {0}))
 
-    batches = query.all()
+    batches = query.order_by(Batch.id.desc()).all()
     for b in batches:
         attach_creator_name(b, db)
     return batches
@@ -206,7 +206,7 @@ def get_course_batches(
         visible = teacher_visible_batch_ids(db, current_user.id)
         query = query.filter(Batch.id.in_(visible or {0}))
 
-    batches = query.all()
+    batches = query.order_by(Batch.id.desc()).all()
     for b in batches:
         attach_creator_name(b, db)
     return batches
