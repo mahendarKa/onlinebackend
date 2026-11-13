@@ -7,6 +7,7 @@ LAN deployments; it does NOT sandbox the OS (no user isolation / memory
 caps on Windows), so only run code from trusted exam candidates.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -26,7 +27,48 @@ LANG_ALIASES = {
     "node": "javascript",
     "nodejs": "javascript",
     "html5": "html",
+    "c++": "cpp",
+    "cxx": "cpp",
+    "cc": "cpp",
+    "g++": "cpp",
+    "c#": "csharp",
+    "cs": "csharp",
+    "dotnet": "csharp",
+    "rb": "ruby",
+    "golang": "go",
 }
+
+# Languages this executor knows how to run/validate.
+SUPPORTED_LANGUAGES = sorted({
+    "python", "javascript", "java", "html",
+    "c", "cpp", "csharp", "php", "ruby", "go",
+})
+
+
+def _exe(workdir: str, name: str = "main") -> str:
+    """Compiled binary path — Windows needs the .exe suffix."""
+    return os.path.join(workdir, name + (".exe" if os.name == "nt" else ""))
+
+
+def _html_malformed_tags(code: str) -> list[str]:
+    """Tag-like sequences never closed by '>' before another '<' or EOL.
+
+    html.parser swallows markup like ``Hello</p`` — browsers render
+    the text so it used to pass text-match tests even though the
+    markup is broken. Real <script>/<style> bodies are skipped.
+    """
+    bad = []
+    # strip script/style bodies so their JS/CSS < comparisons don't
+    # look like unterminated tags
+    cleaned = re.sub(
+        r"<(script|style)\b.*?</\1>", "", code or "",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    for m in re.finditer(r"</?[a-zA-Z][^<>]*?(?=<|$)", cleaned):
+        frag = m.group(0)
+        if frag.strip():
+            bad.append(_flat(frag)[:60])
+    return bad
 
 
 @dataclass
@@ -115,34 +157,136 @@ def _html_page_text(code: str) -> str:
     return parser.page_text()
 
 
+class _DomNode:
+    """Minimal DOM element for structural HTML checks."""
+
+    def __init__(self, tag):
+        self.tag = tag
+        self.children = []
+        self.text = []
+
+    def inner_text(self) -> str:
+        parts = list(self.text)
+        for child in self.children:
+            parts.append(child.inner_text())
+        return _flat(" ".join(parts))
+
+
+class _DomTree(HTMLParser):
+    """Builds a light element tree; void tags never nest."""
+
+    VOID = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "source", "track", "wbr",
+    }
+    RAWTEXT = {"script", "style"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = _DomNode("#root")
+        self.stack = [self.root]
+
+    def handle_starttag(self, tag, attrs):
+        node = _DomNode(tag.lower())
+        self.stack[-1].children.append(node)
+        if tag.lower() not in self.VOID:
+            self.stack.append(node)
+
+    def handle_startendtag(self, tag, attrs):
+        self.stack[-1].children.append(_DomNode(tag.lower()))
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        for i in range(len(self.stack) - 1, 0, -1):
+            if self.stack[i].tag == tag:
+                del self.stack[i:]
+                break
+
+    def handle_data(self, data):
+        text = _flat(data)
+        if text:
+            self.stack[-1].text.append(text)
+
+
+def _dom_tree(code: str) -> _DomNode:
+    parser = _DomTree()
+    try:
+        parser.feed(code or "")
+        parser.close()
+    except Exception:  # noqa: BLE001 - forgiving parser; best effort
+        pass
+    return parser.root
+
+
+def _expected_elements(expected: str):
+    """Parse an expected markup fragment into (tag, inner_text) pairs."""
+    tree = _dom_tree(f"<div>{expected}</div>")
+    wrapper = tree.children[0] if tree.children else None
+    children = wrapper.children if wrapper else []
+    return [
+        (el.tag, el.inner_text().lower())
+        for el in children
+        if el.tag not in _DomTree.RAWTEXT
+    ]
+
+
+def _has_element(root: _DomNode, tag: str, text: str) -> bool:
+    """True when a subtree has element `tag` whose inner text
+    contains `text` (or just exists when text is empty)."""
+    def walk(node):
+        for el in node.children:
+            if el.tag == tag and (not text or text in el.inner_text().lower()):
+                return True
+            if walk(el):
+                return True
+        return False
+    return walk(root)
+
+
 def _run_html_cases(code: str, cases, fields):
     """Evaluate an HTML submission without executing anything.
 
-    Pass rule per case: the case's expected output must appear in the
-    page's rendered text (whitespace-insensitive). If it contains tags
-    it is instead matched against the normalised raw markup, so tests
-    can verify either visible text or required markup.
+    Per case: a plain-text expected output must appear in the page's
+    rendered text; an expected output containing tags is checked
+    STRUCTURALLY — every expected element must exist with matching
+    inner text (attribute order / extra markup don't matter).
+    Unterminated tag-like markup (``Hello</p``) fails the case with
+    a syntax error instead of silently passing.
     """
     text = _html_page_text(code)
     text_flat = _flat(text).lower()
-    source_flat = _flat(code).lower()
+    bad_tags = _html_malformed_tags(code)
+    tree = None
     results = []
     for case in cases:
         input_text, expected = fields(case)
         expected_flat = _flat(expected).lower()
+        error = None
         if "<" in expected_flat:
-            passed = bool(expected_flat) and expected_flat in source_flat
+            if tree is None:
+                tree = _dom_tree(code)
+            required = _expected_elements(expected or "")
+            passed = bool(required) and all(
+                _has_element(tree, tag, inner)
+                for tag, inner in required
+            )
         else:
             passed = (
                 bool(expected_flat)
                 and (expected_flat == text_flat
                      or expected_flat in text_flat)
             )
+        if passed and bad_tags:
+            passed = False
+            error = "Malformed markup: " + "; ".join(
+                f"'{b}' missing '>'" for b in bad_tags
+            )
         results.append(CaseResult(
             input_text=input_text or "",
             expected_output=expected or "",
             actual_output=text,
             passed=passed,
+            error=error,
         ))
     return results
 
@@ -198,7 +342,70 @@ def _prepare(language: str, code: str, workdir: str):
             return None, f"Compilation failed:\n{err.strip() or 'javac error'}"
         return lambda wd: ["java", "-cp", wd, name], None
 
-    return None, f"Unsupported language: {language or '(none)'}"
+    if language == "c":
+        src = "main.c"
+        with open(f"{workdir}/{src}", "w", encoding="utf-8") as fh:
+            fh.write(code)
+        exe = _exe(workdir)
+        rc, _out, err, timed_out = _run_cmd(
+            ["gcc", src, "-o", exe], workdir, "", COMPILE_TIMEOUT
+        )
+        if timed_out:
+            return None, "Compilation timed out"
+        if rc != 0:
+            return None, f"Compilation failed:\n{err.strip() or 'gcc error'}"
+        return lambda wd: [exe], None
+
+    if language == "cpp":
+        src = "main.cpp"
+        with open(f"{workdir}/{src}", "w", encoding="utf-8") as fh:
+            fh.write(code)
+        exe = _exe(workdir)
+        rc, _out, err, timed_out = _run_cmd(
+            ["g++", src, "-o", exe], workdir, "", COMPILE_TIMEOUT
+        )
+        if timed_out:
+            return None, "Compilation timed out"
+        if rc != 0:
+            return None, f"Compilation failed:\n{err.strip() or 'g++ error'}"
+        return lambda wd: [exe], None
+
+    if language == "csharp":
+        src = "main.cs"
+        with open(f"{workdir}/{src}", "w", encoding="utf-8") as fh:
+            fh.write(code)
+        exe = _exe(workdir)
+        rc, _out, err, timed_out = _run_cmd(
+            ["csc", f"/out:{exe}", src], workdir, "", COMPILE_TIMEOUT
+        )
+        if timed_out:
+            return None, "Compilation timed out"
+        if rc != 0:
+            return None, f"Compilation failed:\n{err.strip() or 'csc error'}"
+        return lambda wd: [exe], None
+
+    if language == "php":
+        src = "main.php"
+        with open(f"{workdir}/{src}", "w", encoding="utf-8") as fh:
+            fh.write(code)
+        return lambda wd: ["php", src], None
+
+    if language == "ruby":
+        src = "main.rb"
+        with open(f"{workdir}/{src}", "w", encoding="utf-8") as fh:
+            fh.write(code)
+        return lambda wd: ["ruby", src], None
+
+    if language == "go":
+        src = "main.go"
+        with open(f"{workdir}/{src}", "w", encoding="utf-8") as fh:
+            fh.write(code)
+        return lambda wd: ["go", "run", src], None
+
+    return None, (
+        f"Unsupported language: {language or '(none)'} — "
+        f"supported: {', '.join(SUPPORTED_LANGUAGES)}"
+    )
 
 
 def run_test_cases(

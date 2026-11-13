@@ -839,7 +839,8 @@ def perform_question_delete(db: Session, question: Question):
 #   formula                             calculated* ({a} placeholders)
 #   units                               calculated*
 #   datasets             "a=1-10@2|b=5-20"  calculated* (name=min-max@dec)
-#   language             python|c|cpp|java  coding (required)
+#   language             python|java|javascript|html|c|cpp|
+#                        csharp|php|ruby|go  coding (required)
 #   starter_code                        coding
 #   time_limit           seconds        coding
 #   test_cases           "in=>out@marks|!in=>out"  coding (! = hidden)
