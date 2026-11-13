@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -41,11 +41,15 @@ def admin_dashboard(
     db: Session = Depends(get_db),
     current_user: User = admin_only,
 ):
+    # Plain admins never see superadmin accounts anywhere.
+    hide_super = current_user.role != "superadmin"
+
+    roles_q = db.query(User.role, func.count())
+    if hide_super:
+        roles_q = roles_q.filter(User.role != "superadmin")
     users_by_role = {
         role: count
-        for role, count in db.query(
-            User.role, func.count()
-        ).group_by(User.role).all()
+        for role, count in roles_q.group_by(User.role).all()
     }
 
     attempts = _status_counts(
@@ -69,6 +73,12 @@ def admin_dashboard(
     failed = db.query(ExamResult).filter(
         ExamResult.pass_fail == "FAIL"
     ).count()
+    # Submitted attempts still awaiting evaluation have no result row.
+    has_result = select(ExamResult.exam_attempt_id)
+    pending = db.query(ExamAttempt).filter(
+        ExamAttempt.status == "submitted",
+        ExamAttempt.id.not_in(has_result),
+    ).count()
 
     # Attempts started per day over the last 7 days.
     today = utcnow().date()
@@ -91,7 +101,11 @@ def admin_dashboard(
 
     return {
         "totals": {
-            "users": db.query(User).count(),
+            "users": (
+                db.query(User).filter(
+                    User.role != "superadmin"
+                ).count() if hide_super else db.query(User).count()
+            ),
             "batches": db.query(Batch).count(),
             "questions": db.query(Question).count(),
             "exams": db.query(Exam).count(),
@@ -99,7 +113,11 @@ def admin_dashboard(
         "users_by_role": users_by_role,
         "exams": {"active": active, "inactive": db.query(Exam).count() - active},
         "attempts": attempts,
-        "results": {"passed": passed, "failed": failed},
+        "results": {
+            "passed": passed,
+            "failed": failed,
+            "pending": pending,
+        },
         "attempts_last_7d": attempts_last_7d,
     }
 
@@ -163,6 +181,16 @@ def teacher_dashboard(
     passed = sum(1 for r, _, _ in results if r.pass_fail == "PASS")
     failed = len(results) - passed
 
+    # Submitted attempts on this teacher's exams still awaiting
+    # evaluation (essay/coding answers needing manual grading).
+    pending = db.query(ExamAttempt).filter(
+        ExamAttempt.exam_id.in_(exam_ids or {0}),
+        ExamAttempt.status == "submitted",
+        ExamAttempt.id.not_in(
+            select(ExamResult.exam_attempt_id)
+        ),
+    ).count()
+
     ranges = [("0-39%", 0, 40), ("40-59%", 40, 60),
               ("60-79%", 60, 80), ("80-100%", 80, 100.01)]
     distribution = [
@@ -184,7 +212,11 @@ def teacher_dashboard(
             "students_attempted": students_attempted,
         },
         "attempts": attempts,
-        "results": {"passed": passed, "failed": failed},
+        "results": {
+            "passed": passed,
+            "failed": failed,
+            "pending": pending,
+        },
         "score_distribution": distribution,
         # Up to 10 best and 10 worst (ascending) scorers.
         "top_scorers": [scorer(entry) for entry in results[:10]],

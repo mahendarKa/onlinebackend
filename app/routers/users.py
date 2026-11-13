@@ -362,6 +362,11 @@ def get_users(
             )
         query = query.filter(User.role == role)
 
+    # Only a superadmin may see superadmin accounts. For admins
+    # (and teachers) they are invisible, even via role=superadmin.
+    if current_user.role != "superadmin":
+        query = query.filter(User.role != "superadmin")
+
     return query.order_by(User.id).all()
 
 
@@ -434,6 +439,15 @@ def change_user_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
+        )
+
+    if (
+        user.role == "superadmin"
+        and current_user.role != "superadmin"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a superadmin can change a superadmin's status"
         )
 
     user.is_active = not user.is_active
