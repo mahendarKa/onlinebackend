@@ -28,6 +28,8 @@ from app.services.activity_service import log_audit
 
 
 ALLOWED_ROLES = ["superadmin", "admin", "teacher", "student"]
+# Accounts only a superadmin may see or manage.
+ELEVATED_ROLES = ("admin", "superadmin")
 
 
 router = APIRouter(
@@ -115,12 +117,12 @@ def admin_create_user(
         )
 
     if (
-        user_data.role == "superadmin"
+        user_data.role in ELEVATED_ROLES
         and current_user.role != "superadmin"
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a superadmin can create another superadmin"
+            detail="Only a superadmin can create admin accounts"
         )
 
     new_user = User(
@@ -284,10 +286,13 @@ def admin_bulk_upload_users(
             )
             continue
 
-        if role == "superadmin" and current_user.role != "superadmin":
+        if (
+            role in ELEVATED_ROLES
+            and current_user.role != "superadmin"
+        ):
             errors.append(
                 {"row": row_no, "email": email,
-                 "reason": "only a superadmin can create superadmin users"}
+                 "reason": "only a superadmin can create admin accounts"}
             )
             continue
 
@@ -362,10 +367,10 @@ def get_users(
             )
         query = query.filter(User.role == role)
 
-    # Only a superadmin may see superadmin accounts. For admins
-    # (and teachers) they are invisible, even via role=superadmin.
+    # Only a superadmin sees admin-level accounts. Everyone else
+    # gets teachers and students — even role=admin returns nothing.
     if current_user.role != "superadmin":
-        query = query.filter(User.role != "superadmin")
+        query = query.filter(User.role.in_(("teacher", "student")))
 
     return query.order_by(User.id).all()
 
@@ -410,6 +415,17 @@ def get_user(
             detail="User not found"
         )
 
+    # Admin-level accounts are invisible to non-superadmins.
+    if (
+        user.role in ELEVATED_ROLES
+        and current_user.role != "superadmin"
+        and user.id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
     return user
 
 
@@ -442,12 +458,12 @@ def change_user_status(
         )
 
     if (
-        user.role == "superadmin"
+        user.role in ELEVATED_ROLES
         and current_user.role != "superadmin"
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a superadmin can change a superadmin's status"
+            detail="Only a superadmin can change an admin's status"
         )
 
     user.is_active = not user.is_active
@@ -493,23 +509,29 @@ def update_user(
         )
 
     if (
-        user.role == "superadmin"
+        user.role in ELEVATED_ROLES
         and current_user.role != "superadmin"
+        and user.id != current_user.id
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a superadmin can edit a superadmin"
+            detail="Only a superadmin can edit admin accounts"
         )
 
     update_data = user_data.model_dump(exclude_unset=True)
 
+    # Admin-level roles may only be granted by a superadmin. An
+    # admin re-submitting their own unchanged role is a no-op and
+    # stays allowed.
+    new_role = update_data.get("role")
     if (
-        update_data.get("role") == "superadmin"
+        new_role in ELEVATED_ROLES
         and current_user.role != "superadmin"
+        and not (user.id == current_user.id and new_role == user.role)
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a superadmin can grant the superadmin role"
+            detail="Only a superadmin can grant admin-level roles"
         )
 
     if "email" in update_data:
@@ -585,12 +607,12 @@ def delete_user(
         )
 
     if (
-        user.role == "superadmin"
+        user.role in ELEVATED_ROLES
         and current_user.role != "superadmin"
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a superadmin can delete a superadmin"
+            detail="Only a superadmin can delete admin accounts"
         )
 
     # Remove dependent rows that do not cascade on users.id.

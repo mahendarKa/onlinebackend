@@ -41,12 +41,14 @@ def admin_dashboard(
     db: Session = Depends(get_db),
     current_user: User = admin_only,
 ):
-    # Plain admins never see superadmin accounts anywhere.
-    hide_super = current_user.role != "superadmin"
+    # Only a superadmin sees admin-level accounts anywhere.
+    hide_elevated = current_user.role != "superadmin"
 
     roles_q = db.query(User.role, func.count())
-    if hide_super:
-        roles_q = roles_q.filter(User.role != "superadmin")
+    if hide_elevated:
+        roles_q = roles_q.filter(
+            User.role.in_(("teacher", "student"))
+        )
     users_by_role = {
         role: count
         for role, count in roles_q.group_by(User.role).all()
@@ -101,8 +103,8 @@ def admin_dashboard(
         "totals": {
             "users": (
                 db.query(User).filter(
-                    User.role != "superadmin"
-                ).count() if hide_super else db.query(User).count()
+                    User.role.in_(("teacher", "student"))
+                ).count() if hide_elevated else db.query(User).count()
             ),
             "batches": db.query(Batch).count(),
             "questions": db.query(Question).count(),
