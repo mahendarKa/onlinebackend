@@ -173,6 +173,30 @@ def teacher_visible_batch_ids(db: Session, teacher_id: int) -> set[int]:
     return ids
 
 
+def teacher_course_ids(db: Session, teacher_id: int) -> set[int]:
+    """Courses a teacher may create exams for: any course having a
+    batch they teach (assigned via BatchTeacher) or created."""
+    batch_ids = teacher_visible_batch_ids(db, teacher_id)
+    if not batch_ids:
+        return set()
+    return {
+        r[0] for r in db.query(Batch.course_id).filter(
+            Batch.id.in_(batch_ids)
+        ).all()
+    }
+
+
+def require_course_access(user, course_id: int, db: Session) -> None:
+    """Teachers may only create exams for courses their batches cover."""
+    if is_admin(user):
+        return
+    if course_id not in teacher_course_ids(db, user.id):
+        raise HTTPException(
+            status_code=403,
+            detail="You are not assigned to any batch of this course",
+        )
+
+
 def require_batch_access(user, batch: Batch, db: Session) -> None:
     if is_admin(user):
         return

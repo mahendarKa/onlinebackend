@@ -30,6 +30,7 @@ from app.models.batch_teacher import BatchTeacher
 from app.models.user import User
 from app.utils.permissions import (
     is_admin,
+    require_course_access,
     require_exam_edit,
     require_exam_view,
     teacher_exam_ids,
@@ -82,6 +83,10 @@ def create_exam(
 
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
+
+    # Teachers may only create exams for courses covered by batches
+    # they teach; admins are unrestricted.
+    require_course_access(current_user, data.course_id, db)
 
     if (
         data.start_time and data.end_time
@@ -175,6 +180,7 @@ def update_exam(
         ).first()
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
+        require_course_access(current_user, updates["course_id"], db)
 
     for key, value in updates.items():
         setattr(exam, key, value)

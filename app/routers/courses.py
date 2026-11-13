@@ -19,6 +19,7 @@ from app.utils.dependencies import (
     get_current_user,
     require_role
 )
+from app.utils.permissions import is_admin, teacher_course_ids
 
 
 router = APIRouter(
@@ -95,6 +96,31 @@ def get_courses(
     for c in courses:
         c.creator_name = names.get(c.created_by)
     return courses
+
+
+# --------------------------------------------------
+# COURSES THIS USER MAY CREATE EXAMS FOR
+# (declared before /{course_id} so "mine" isn't read as an id)
+# --------------------------------------------------
+
+@router.get(
+    "/mine",
+    response_model=list[CourseResponse]
+)
+def get_my_courses(
+    current_user: User = Depends(
+        require_role("admin", "superadmin", "teacher")
+    ),
+    db: Session = Depends(get_db)
+):
+    """Admins get all courses; teachers get only courses covered by
+    batches they teach or created."""
+    if is_admin(current_user):
+        return db.query(Course).all()
+    course_ids = teacher_course_ids(db, current_user.id)
+    if not course_ids:
+        return []
+    return db.query(Course).filter(Course.id.in_(course_ids)).all()
 
 
 # --------------------------------------------------
