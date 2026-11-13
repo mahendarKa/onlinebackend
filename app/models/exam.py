@@ -31,6 +31,9 @@ class Exam(TimestampMixin, Base):
     shuffle_questions = Column(Boolean, default=False)
     # Webcam/event proctoring enforced in the exam player when set.
     is_proctored = Column(Boolean, default=False)
+    # NULL = no limit. When the recorded violation count reaches this,
+    # the player auto-submits the attempt.
+    max_violations = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True)
 
     @property

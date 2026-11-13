@@ -32,6 +32,7 @@ class ExamCreate(BaseModel):
     attempts_allowed: Optional[int] = Field(default=1, ge=1)
     shuffle_questions: bool = False
     is_proctored: bool = False
+    max_violations: Optional[int] = Field(default=None, ge=1)
     is_active: bool = True
 
     @field_validator("start_time", "end_time")
@@ -68,6 +69,7 @@ class ExamUpdate(BaseModel):
     attempts_allowed: Optional[int] = Field(default=None, ge=1)
     shuffle_questions: Optional[bool] = None
     is_proctored: Optional[bool] = None
+    max_violations: Optional[int] = None
     is_active: Optional[bool] = None
 
     @field_validator("start_time", "end_time")
@@ -91,6 +93,7 @@ class ExamResponse(BaseModel):
     attempts_allowed: Optional[int]
     shuffle_questions: Optional[bool]
     is_proctored: Optional[bool] = None
+    max_violations: Optional[int] = None
     is_active: Optional[bool]
     created_at: Optional[datetime]
     creator_name: Optional[str] = None

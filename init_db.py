@@ -44,6 +44,7 @@ COLUMN_MIGRATIONS = {
     "exams": {
         "passing_percentage": "NUMERIC(5,2) NULL",
         "is_proctored": "BOOLEAN DEFAULT FALSE",
+        "max_violations": "INTEGER NULL",
     },
     "users": {
         "mobile_number": "VARCHAR(20)",

@@ -144,6 +144,7 @@ def get_student_exams(
             "attempts_allowed": attempts_allowed,
             "attempts_used": attempts_used,
             "is_proctored": bool(exam.is_proctored),
+            "max_violations": exam.max_violations,
             "completed_attempts": len(completed_attempts),
             "status": status,
         })

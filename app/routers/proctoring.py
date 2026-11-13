@@ -50,6 +50,15 @@ def _own_attempt(attempt_id: int, user: User, db: Session) -> ExamAttempt:
     return attempt
 
 
+def _violation_total(attempt_id: int, db: Session) -> int:
+    """Events that count against max_violations. `ai_unavailable`
+    is infrastructure noise, not student behaviour — excluded."""
+    return db.query(func.count(ProctorEvent.id)).filter(
+        ProctorEvent.attempt_id == attempt_id,
+        ProctorEvent.event_type != "ai_unavailable",
+    ).scalar() or 0
+
+
 def _event_dict(e: ProctorEvent) -> dict:
     return {
         "id": e.id,
@@ -79,7 +88,7 @@ def log_event(
     )
     db.add(event)
     db.commit()
-    return {"id": event.id}
+    return {"id": event.id, "total": _violation_total(data.attempt_id, db)}
 
 
 # STUDENT: upload a webcam frame for a flagged event
@@ -124,7 +133,23 @@ async def upload_snapshot(
     )
     db.add(event)
     db.commit()
-    return {"id": event.id, "snapshot_url": event.snapshot_url}
+    return {
+        "id": event.id,
+        "snapshot_url": event.snapshot_url,
+        "total": _violation_total(attempt_id, db),
+    }
+
+
+# STUDENT: current violation count for the player's own attempt
+# (used on resume so the counter picks up where it left off)
+@router.get("/attempts/{attempt_id}/count")
+def attempt_count(
+    attempt_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = student_only,
+):
+    _own_attempt(attempt_id, current_user, db)
+    return {"total": _violation_total(attempt_id, db)}
 
 
 # TEACHER/ADMIN: violation log for one attempt
