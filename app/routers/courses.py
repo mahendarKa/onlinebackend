@@ -5,6 +5,7 @@ from fastapi import (
     status
 )
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -47,7 +48,7 @@ def create_course(
 
     existing_course = (
         db.query(Course)
-        .filter(Course.code == course_data.code)
+        .filter(func.lower(Course.code) == course_data.code.lower())
         .first()
     )
 
@@ -60,7 +61,7 @@ def create_course(
 
     if (
         db.query(Course)
-        .filter(Course.name == course_data.name)
+        .filter(func.lower(Course.name) == course_data.name.lower())
         .first()
     ):
         raise HTTPException(
@@ -202,7 +203,7 @@ def update_course(
         existing_name = (
             db.query(Course)
             .filter(
-                Course.name == course_data.name,
+                func.lower(Course.name) == course_data.name.lower(),
                 Course.id != course_id
             )
             .first()
@@ -222,7 +223,7 @@ def update_course(
         existing_course = (
             db.query(Course)
             .filter(
-                Course.code == course_data.code,
+                func.lower(Course.code) == course_data.code.lower(),
                 Course.id != course_id
             )
             .first()

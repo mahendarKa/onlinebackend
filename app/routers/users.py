@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import (
     APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 )
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -66,7 +67,9 @@ def register_user(
 
     existing_user = (
         db.query(User)
-        .filter(User.email == user_data.email)
+        .filter(
+            func.lower(User.email) == user_data.email.lower()
+        )
         .first()
     )
 
@@ -118,7 +121,9 @@ def admin_create_user(
 
     existing_user = (
         db.query(User)
-        .filter(User.email == user_data.email)
+        .filter(
+            func.lower(User.email) == user_data.email.lower()
+        )
         .first()
     )
 
@@ -246,8 +251,11 @@ def admin_bulk_upload_users(
     errors = []
     seen_emails = set()
 
+    # Lowercased so the case-insensitive email check below catches
+    # Foo@x.com vs foo@x.com (uploaded emails are lowercased too).
     existing_emails = {
-        u.email for u in db.query(User.email).all()
+        (u.email or '').lower()
+        for u in db.query(User.email).all()
     }
     existing_mobiles = {
         m[0] for m in db.query(User.mobile_number).filter(
@@ -583,7 +591,7 @@ def update_user(
         existing_user = (
             db.query(User)
             .filter(
-                User.email == update_data["email"],
+                func.lower(User.email) == update_data["email"].lower(),
                 User.id != user_id
             )
             .first()
