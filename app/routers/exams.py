@@ -33,6 +33,7 @@ from app.services.exam_change import (
     EXAM_PENDING_MSG,
     apply_exam_request,
     create_exam_change_request,
+    delete_exam_tree,
     pending_request_for,
     resolve_exam_request,
 )
@@ -426,12 +427,7 @@ def delete_exam(
         db, current_user.id, "exam.delete", "exam", exam.id,
         details=f"'{exam.name}'",
     )
-    # Resolved request rows still FK to this exam and their column has
-    # no cascade on existing schemas — remove them before the delete.
-    db.query(ExamChangeRequest).filter(
-        ExamChangeRequest.exam_id == exam.id
-    ).delete(synchronize_session=False)
-    db.delete(exam)
+    delete_exam_tree(db, exam)
     db.commit()
     return {"message": "Exam deleted successfully"}
 

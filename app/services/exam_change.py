@@ -11,8 +11,11 @@ from fastapi import HTTPException
 
 from app.models.batch import Batch  # noqa: F401  (used for batch lookup clarity)
 from app.models.batch_teacher import BatchTeacher
-from app.models.exam import Exam, ExamBatch, ExamGrader
+from app.models.exam import Exam, ExamBatch, ExamGrader, ExamQuestion
+from app.models.exam_attempt import ExamAttempt, ExamResult, StudentAnswer
 from app.models.exam_change_request import ExamChangeRequest
+from app.models.exam_feedback import ExamFeedback
+from app.models.proctor_event import ProctorEvent
 from app.services.activity_service import admin_ids, notify, notify_many
 from app.utils.time import utcnow
 
@@ -69,6 +72,54 @@ def create_exam_change_request(db, exam: Exam, action: str,
     return request
 
 
+def delete_exam_tree(db, exam: Exam):
+    """Delete every row that references the exam, then the exam.
+
+    Model FKs declare ON DELETE CASCADE but deployed schemas may predate
+    it — removing dependents explicitly keeps deletes working either way.
+    """
+    attempt_ids = [
+        r[0] for r in db.query(ExamAttempt.id).filter(
+            ExamAttempt.exam_id == exam.id
+        ).all()
+    ]
+    if attempt_ids:
+        for model in (StudentAnswer, ExamResult, ProctorEvent,
+                      ExamFeedback):
+            col = getattr(model, 'exam_attempt_id', None) or \
+                getattr(model, 'attempt_id')
+            db.query(model).filter(
+                col.in_(attempt_ids)
+            ).delete(synchronize_session=False)
+        db.query(ExamAttempt).filter(
+            ExamAttempt.id.in_(attempt_ids)
+        ).delete(synchronize_session=False)
+
+    assignment_ids = [
+        r[0] for r in db.query(ExamBatch.id).filter(
+            ExamBatch.exam_id == exam.id
+        ).all()
+    ]
+    if assignment_ids:
+        db.query(ExamGrader).filter(
+            ExamGrader.exam_batch_id.in_(assignment_ids)
+        ).delete(synchronize_session=False)
+        db.query(ExamBatch).filter(
+            ExamBatch.id.in_(assignment_ids)
+        ).delete(synchronize_session=False)
+
+    db.query(ExamQuestion).filter(
+        ExamQuestion.exam_id == exam.id
+    ).delete(synchronize_session=False)
+    db.query(ExamFeedback).filter(
+        ExamFeedback.exam_id == exam.id
+    ).delete(synchronize_session=False)
+    db.query(ExamChangeRequest).filter(
+        ExamChangeRequest.exam_id == exam.id
+    ).delete(synchronize_session=False)
+    db.delete(exam)
+
+
 def apply_exam_request(db, request: ExamChangeRequest):
     """Apply the queued change. Caller sets status/reviewer afterwards."""
     exam = db.query(Exam).filter(Exam.id == request.exam_id).first()
@@ -76,12 +127,7 @@ def apply_exam_request(db, request: ExamChangeRequest):
         return
 
     if request.action == "delete":
-        # Request rows FK to exams.id has no cascade on existing
-        # schemas — clear them first, everything else cascades.
-        db.query(ExamChangeRequest).filter(
-            ExamChangeRequest.exam_id == exam.id
-        ).delete(synchronize_session=False)
-        db.delete(exam)
+        delete_exam_tree(db, exam)
         return
 
     if request.action == "graders":
