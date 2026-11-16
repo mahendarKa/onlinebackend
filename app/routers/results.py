@@ -392,6 +392,19 @@ def pending_evaluation(
     if not attempt_ids:
         return []
 
+    # Ordinal attempt number per student+exam so graders can tell
+    # apart a student's repeated attempts of the same exam.
+    attempt_no = {}
+    for uid, eid in {(a.user_id, a.exam_id) for a in scoped_attempts}:
+        ids = [
+            r[0] for r in db.query(ExamAttempt.id).filter(
+                ExamAttempt.user_id == uid,
+                ExamAttempt.exam_id == eid,
+            ).order_by(ExamAttempt.id).all()
+        ]
+        for i, aid in enumerate(ids):
+            attempt_no[aid] = i + 1
+
     answers = (
         db.query(StudentAnswer)
         .filter(
@@ -439,6 +452,7 @@ def pending_evaluation(
         output.append({
             "answer_id": answer.id,
             "attempt_id": answer.exam_attempt_id,
+            "attempt_number": attempt_no.get(answer.exam_attempt_id),
             "exam_id": attempt.exam_id if attempt else None,
             "student_id": attempt.user_id if attempt else None,
             "student_name": student.name if student else None,
