@@ -58,6 +58,16 @@ def create_course(
             detail="Course code already exists"
         )
 
+    if (
+        db.query(Course)
+        .filter(Course.name == course_data.name)
+        .first()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Course name already exists"
+        )
+
     course = Course(
         name=course_data.name,
         code=course_data.code,
@@ -188,6 +198,23 @@ def update_course(
         )
 
     if course_data.name is not None:
+
+        existing_name = (
+            db.query(Course)
+            .filter(
+                Course.name == course_data.name,
+                Course.id != course_id
+            )
+            .first()
+        )
+
+        if existing_name:
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Course name already exists"
+            )
+
         course.name = course_data.name
 
     if course_data.code is not None:

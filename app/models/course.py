@@ -24,6 +24,7 @@ class Course(TimestampMixin, Base):
 
     name = Column(
         String(255),
+        unique=True,
         nullable=False
     )
 
