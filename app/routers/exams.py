@@ -28,6 +28,14 @@ from app.services.activity_service import (
 from app.models.batch_student import BatchStudent
 from app.models.batch_teacher import BatchTeacher
 from app.models.user import User
+from app.models.exam_change_request import ExamChangeRequest
+from app.services.exam_change import (
+    EXAM_PENDING_MSG,
+    apply_exam_request,
+    create_exam_change_request,
+    pending_request_for,
+    resolve_exam_request,
+)
 from app.utils.permissions import (
     is_admin,
     require_course_access,
@@ -160,6 +168,135 @@ def list_exams(
     return attach_creator_names(exams, db)
 
 
+# --------------------------------------------------
+# EXAM CHANGE REQUESTS (delete / graders)
+# Declared before GET /{exam_id} so "change-requests" is not
+# captured as an exam id.
+# --------------------------------------------------
+
+def _request_row(request: ExamChangeRequest, db: Session) -> dict:
+    exam = db.query(Exam).filter(Exam.id == request.exam_id).first()
+    requester = db.query(User).filter(
+        User.id == request.requested_by
+    ).first()
+    row = {
+        "id": request.id,
+        "exam_id": request.exam_id,
+        "exam_name": (
+            exam.name if exam
+            else (request.payload or {}).get("exam_name")
+        ),
+        "action": request.action,
+        "payload": request.payload,
+        "status": request.status,
+        "requested_by": request.requested_by,
+        "requester_name": requester.name if requester else None,
+        "review_note": request.review_note,
+        "created_at": request.created_at,
+    }
+    if request.action == "graders":
+        assignment = db.query(ExamBatch).filter(
+            ExamBatch.id
+            == (request.payload or {}).get("assignment_id")
+        ).first()
+        batch = (
+            db.query(Batch).filter(Batch.id == assignment.batch_id).first()
+            if assignment else None
+        )
+        row["batch_name"] = batch.name if batch else None
+        row["current"] = {
+            "grader_ids": sorted({
+                g.user_id for g in db.query(ExamGrader).filter(
+                    ExamGrader.exam_batch_id == assignment.id
+                ).all()
+            }) if assignment else [],
+        }
+    return row
+
+
+@router.get("/change-requests/count")
+def pending_exam_request_count(
+    current_user=Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    return {
+        "count": db.query(ExamChangeRequest).filter(
+            ExamChangeRequest.status == "pending"
+        ).count()
+    }
+
+
+@router.get("/change-requests")
+def list_exam_change_requests(
+    status: str | None = None,
+    db: Session = Depends(get_db),
+    current_user=teacher_admin,
+):
+    query = db.query(ExamChangeRequest)
+    if status:
+        query = query.filter(ExamChangeRequest.status == status)
+    if not is_admin(current_user):
+        query = query.filter(
+            ExamChangeRequest.requested_by == current_user.id
+        )
+    requests = query.order_by(ExamChangeRequest.id.desc()).all()
+    return [_request_row(r, db) for r in requests]
+
+
+@router.post("/change-requests/{request_id}/approve")
+def approve_exam_change_request(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("admin")),
+):
+    request = db.query(ExamChangeRequest).filter(
+        ExamChangeRequest.id == request_id
+    ).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if request.status != "pending":
+        raise HTTPException(
+            status_code=400, detail="Request already resolved"
+        )
+    apply_exam_request(db, request)
+    resolve_exam_request(db, request, "approved", current_user)
+    log_audit(
+        db, current_user.id, "exam.request_approve",
+        "exam_change_request", request.id,
+        details=f"{request.action} exam {request.exam_id}",
+    )
+    db.commit()
+    return {"message": "Request approved"}
+
+
+@router.post("/change-requests/{request_id}/reject")
+def reject_exam_change_request(
+    request_id: int,
+    data: dict | None = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("admin")),
+):
+    request = db.query(ExamChangeRequest).filter(
+        ExamChangeRequest.id == request_id
+    ).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if request.status != "pending":
+        raise HTTPException(
+            status_code=400, detail="Request already resolved"
+        )
+    note = (data or {}).get("note") or None
+    resolve_exam_request(db, request, "rejected", current_user, note)
+    log_audit(
+        db, current_user.id, "exam.request_reject",
+        "exam_change_request", request.id,
+        details=f"{request.action} exam {request.exam_id}"
+                f"{f' note: {note}' if note else ''}",
+    )
+    db.commit()
+    return {"message": "Request rejected"}
+
+
 # GET ONE EXAM
 @router.get("/{exam_id}", response_model=ExamResponse)
 def get_exam_api(
@@ -268,10 +405,23 @@ def update_exam(
 def delete_exam(
     exam_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(require_role("admin")),
+    current_user=teacher_admin,
 ):
     exam = get_exam(exam_id, db)
     require_exam_edit(current_user, exam)
+
+    # Non-admin deletes are queued for approval instead of applied.
+    if not is_admin(current_user):
+        if pending_request_for(db, exam.id):
+            raise HTTPException(
+                status_code=400, detail=EXAM_PENDING_MSG
+            )
+        create_exam_change_request(
+            db, exam, "delete", {"exam_name": exam.name}, current_user,
+        )
+        db.commit()
+        return {"message": "Delete request sent for approval"}
+
     log_audit(
         db, current_user.id, "exam.delete", "exam", exam.id,
         details=f"'{exam.name}'",
@@ -484,14 +634,9 @@ def assign_batch(
         )
 
     # Grading can be restricted to selected teachers of this batch.
-    # Only admins may pick graders; teachers assigning a batch get the
-    # default (all batch teachers may grade).
+    # Admin picks apply immediately; teacher picks are queued as an
+    # approval request (all batch teachers may grade until approved).
     grader_ids = data.grader_ids or []
-    if grader_ids and not is_admin(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail="Only admins can assign graders",
-        )
     batch_teachers = {
         row.user_id
         for row in db.query(BatchTeacher).filter(
@@ -516,9 +661,23 @@ def assign_batch(
     db.add(assignment)
     db.flush()
 
-    for gid in set(grader_ids):
-        db.add(ExamGrader(exam_batch_id=assignment.id, user_id=gid))
-    assignment.grader_ids = sorted(set(grader_ids))
+    if grader_ids and not is_admin(current_user):
+        create_exam_change_request(
+            db, exam, "graders",
+            {
+                "assignment_id": assignment.id,
+                "grader_ids": sorted(set(grader_ids)),
+                "exam_name": exam.name,
+            },
+            current_user,
+        )
+        assignment.grader_ids = []
+    else:
+        for gid in set(grader_ids):
+            db.add(ExamGrader(
+                exam_batch_id=assignment.id, user_id=gid
+            ))
+        assignment.grader_ids = sorted(set(grader_ids))
 
     # Notify every student in the batch about the new exam.
     student_ids = [
@@ -609,14 +768,13 @@ def list_exam_batches(
 # UPDATE GRADERS FOR AN ASSIGNMENT
 @router.put(
     "/{exam_id}/batches/{assignment_id}/graders",
-    response_model=ExamBatchResponse,
 )
 def update_assignment_graders(
     exam_id: int,
     assignment_id: int,
     grader_ids: list[int],
     db: Session = Depends(get_db),
-    current_user=Depends(require_role("admin")),
+    current_user=teacher_admin,
 ):
     """Replace the selected graders. Empty list = all batch teachers."""
     exam = get_exam(exam_id, db)
@@ -647,6 +805,32 @@ def update_assignment_graders(
             status_code=400,
             detail="Graders must be teachers assigned to this batch",
         )
+
+    # Teachers' grader changes are queued for admin approval.
+    if not is_admin(current_user):
+        if pending_request_for(
+            db, exam.id, action="graders",
+            assignment_id=assignment.id,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="A grader change for this assignment is "
+                       "already pending approval.",
+            )
+        request = create_exam_change_request(
+            db, exam, "graders",
+            {
+                "assignment_id": assignment.id,
+                "grader_ids": sorted(grader_set),
+                "exam_name": exam.name,
+            },
+            current_user,
+        )
+        db.commit()
+        return {
+            "message": "Grader change sent for approval",
+            "request_id": request.id,
+        }
 
     existing = {
         r.user_id
@@ -680,7 +864,7 @@ def update_assignment_graders(
     db.commit()
     db.refresh(assignment)
     assignment.grader_ids = sorted(grader_set)
-    return assignment
+    return ExamBatchResponse.model_validate(assignment)
 
 
 # REMOVE BATCH ASSIGNMENT
