@@ -584,6 +584,12 @@ def assign_batch(
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
+    if batch.course_id != exam.course_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Only batches of this exam's course can be assigned",
+        )
+
     if data.start_time and data.start_time < utcnow():
         raise HTTPException(
             status_code=400,
