@@ -128,6 +128,10 @@ def apply_exam_request(db, request: ExamChangeRequest):
 
     if request.action == "delete":
         delete_exam_tree(db, exam)
+        # The request row was just deleted — detach it so the caller's
+        # resolve_exam_request() can't emit an UPDATE on a missing row
+        # (StaleDataError). Attributes stay readable for notify/audit.
+        db.expunge(request)
         return
 
     if request.action == "graders":
