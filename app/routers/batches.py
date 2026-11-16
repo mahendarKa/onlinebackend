@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.config.database import get_db
 from app.models.batch import Batch
+from app.models.batch_student import BatchStudent
+from app.models.batch_teacher import BatchTeacher
 from app.models.course import Course
+from app.models.exam import ExamBatch, ExamGrader
 from app.models.user import User
 
 from app.schemas.batch import (
@@ -133,7 +136,6 @@ def get_batches(
         query = query.filter(Batch.id.in_(visible or {0}))
     elif current_user.role == "student":
         # Students only need their own batches.
-        from app.models.batch_student import BatchStudent
         ids = {
             r[0] for r in db.query(BatchStudent.batch_id).filter(
                 BatchStudent.user_id == current_user.id,
@@ -330,7 +332,7 @@ def update_batch(
 def delete_batch(
     batch_id: int,
     current_user: User = Depends(
-        require_role("admin")
+        require_role("superadmin")
     ),
     db: Session = Depends(get_db)
 ):
@@ -347,6 +349,27 @@ def delete_batch(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Batch not found"
         )
+
+    # Children have no cascade: remove exam assignments (and their
+    # graders), enrollments and teacher links before the batch.
+    exam_batch_ids = [
+        r[0] for r in db.query(ExamBatch.id).filter(
+            ExamBatch.batch_id == batch_id
+        ).all()
+    ]
+    if exam_batch_ids:
+        db.query(ExamGrader).filter(
+            ExamGrader.exam_batch_id.in_(exam_batch_ids)
+        ).delete(synchronize_session=False)
+        db.query(ExamBatch).filter(
+            ExamBatch.id.in_(exam_batch_ids)
+        ).delete(synchronize_session=False)
+    db.query(BatchStudent).filter(
+        BatchStudent.batch_id == batch_id
+    ).delete(synchronize_session=False)
+    db.query(BatchTeacher).filter(
+        BatchTeacher.batch_id == batch_id
+    ).delete(synchronize_session=False)
 
     db.delete(batch)
     db.commit()
