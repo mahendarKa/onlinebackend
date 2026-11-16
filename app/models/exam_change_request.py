@@ -21,7 +21,7 @@ class ExamChangeRequest(TimestampMixin, Base):
 
     exam_id = Column(
         BigInteger,
-        ForeignKey("exams.id"),
+        ForeignKey("exams.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

@@ -76,6 +76,11 @@ def apply_exam_request(db, request: ExamChangeRequest):
         return
 
     if request.action == "delete":
+        # Request rows FK to exams.id has no cascade on existing
+        # schemas — clear them first, everything else cascades.
+        db.query(ExamChangeRequest).filter(
+            ExamChangeRequest.exam_id == exam.id
+        ).delete(synchronize_session=False)
         db.delete(exam)
         return
 
