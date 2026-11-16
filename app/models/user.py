@@ -29,7 +29,7 @@ class User(TimestampMixin, Base):
 
     role = Column(String(20), nullable=False)
 
-    mobile_number = Column(String(20), nullable=True)
+    mobile_number = Column(String(20), unique=True, nullable=True)
     profile_pic = Column(String(500), nullable=True)
 
     is_active = Column(Boolean, default=True)

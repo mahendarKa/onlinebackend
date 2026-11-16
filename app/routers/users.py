@@ -32,6 +32,18 @@ ALLOWED_ROLES = ["superadmin", "admin", "teacher", "student"]
 ELEVATED_ROLES = ("admin", "superadmin")
 
 
+def _mobile_taken(
+    db: Session, mobile: str | None, exclude_id: int | None = None
+) -> bool:
+    """True when another user already holds this mobile number."""
+    if not mobile:
+        return False
+    q = db.query(User.id).filter(User.mobile_number == mobile)
+    if exclude_id is not None:
+        q = q.filter(User.id != exclude_id)
+    return q.first() is not None
+
+
 router = APIRouter(
     prefix="/api/users",
     tags=["Users"]
@@ -62,6 +74,12 @@ def register_user(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
+        )
+
+    if _mobile_taken(db, user_data.mobile_number):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mobile number already registered"
         )
 
     new_user = User(
@@ -125,6 +143,12 @@ def admin_create_user(
             detail="Only a superadmin can create admin accounts"
         )
 
+    if _mobile_taken(db, user_data.mobile_number):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mobile number already registered"
+        )
+
     new_user = User(
         first_name=user_data.first_name,
         last_name=user_data.last_name,
@@ -143,7 +167,7 @@ def admin_create_user(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+            detail="Email or mobile number already registered"
         )
     db.refresh(new_user)
 
@@ -225,6 +249,12 @@ def admin_bulk_upload_users(
     existing_emails = {
         u.email for u in db.query(User.email).all()
     }
+    existing_mobiles = {
+        m[0] for m in db.query(User.mobile_number).filter(
+            User.mobile_number.isnot(None)
+        ).all()
+    }
+    seen_mobiles = set()
 
     for row_no, row in enumerate(reader, start=2):  # row 1 = header
         row = {
@@ -303,7 +333,18 @@ def admin_bulk_upload_users(
             )
             continue
 
+        if mobile and (
+            mobile in existing_mobiles or mobile in seen_mobiles
+        ):
+            errors.append(
+                {"row": row_no, "email": email,
+                 "reason": "mobile number already registered"}
+            )
+            continue
+
         seen_emails.add(email)
+        if mobile:
+            seen_mobiles.add(mobile)
         db.add(User(
             first_name=first_name,
             last_name=last_name,
@@ -558,6 +599,15 @@ def update_user(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid role"
+            )
+
+    if "mobile_number" in update_data:
+        if _mobile_taken(
+            db, update_data["mobile_number"], exclude_id=user_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mobile number already registered"
             )
 
     if "password" in update_data:
