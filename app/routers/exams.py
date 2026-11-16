@@ -268,7 +268,7 @@ def update_exam(
 def delete_exam(
     exam_id: int,
     db: Session = Depends(get_db),
-    current_user=teacher_admin,
+    current_user=Depends(require_role("admin")),
 ):
     exam = get_exam(exam_id, db)
     require_exam_edit(current_user, exam)
@@ -484,7 +484,14 @@ def assign_batch(
         )
 
     # Grading can be restricted to selected teachers of this batch.
+    # Only admins may pick graders; teachers assigning a batch get the
+    # default (all batch teachers may grade).
     grader_ids = data.grader_ids or []
+    if grader_ids and not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can assign graders",
+        )
     batch_teachers = {
         row.user_id
         for row in db.query(BatchTeacher).filter(
@@ -609,7 +616,7 @@ def update_assignment_graders(
     assignment_id: int,
     grader_ids: list[int],
     db: Session = Depends(get_db),
-    current_user=teacher_admin,
+    current_user=Depends(require_role("admin")),
 ):
     """Replace the selected graders. Empty list = all batch teachers."""
     exam = get_exam(exam_id, db)
