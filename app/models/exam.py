@@ -17,7 +17,7 @@ class Exam(TimestampMixin, Base):
     created_by = Column(
         BigInteger, ForeignKey("users.id"), nullable=False
     )
-    name = Column(String(255), nullable=False)
+    name = Column(String(255), unique=True, nullable=False)
     description = Column(Text, nullable=True)
     duration_minutes = Column(Integer, nullable=False)
     total_marks = Column(Numeric(7, 2), nullable=False)

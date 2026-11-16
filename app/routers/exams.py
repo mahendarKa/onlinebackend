@@ -89,6 +89,16 @@ def create_exam(
     require_course_access(current_user, data.course_id, db)
 
     if (
+        db.query(Exam)
+        .filter(func.lower(Exam.name) == data.name.lower())
+        .first()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Exam name already exists",
+        )
+
+    if (
         data.start_time and data.end_time
         and data.end_time <= data.start_time
     ):
@@ -181,6 +191,21 @@ def update_exam(
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
         require_course_access(current_user, updates["course_id"], db)
+
+    if "name" in updates:
+        existing_name = (
+            db.query(Exam)
+            .filter(
+                func.lower(Exam.name) == updates["name"].lower(),
+                Exam.id != exam_id
+            )
+            .first()
+        )
+        if existing_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Exam name already exists",
+            )
 
     for key, value in updates.items():
         setattr(exam, key, value)

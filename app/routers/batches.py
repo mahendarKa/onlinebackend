@@ -5,6 +5,7 @@ from fastapi import (
     status
 )
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -75,6 +76,16 @@ def create_batch(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="End date cannot be before start date"
+        )
+
+    if (
+        db.query(Batch)
+        .filter(func.lower(Batch.name) == batch_data.name.lower())
+        .first()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Batch name already exists"
         )
 
     batch = Batch(
@@ -263,6 +274,23 @@ def update_batch(
         batch.course_id = batch_data.course_id
 
     if batch_data.name is not None:
+
+        existing_name = (
+            db.query(Batch)
+            .filter(
+                func.lower(Batch.name) == batch_data.name.lower(),
+                Batch.id != batch_id
+            )
+            .first()
+        )
+
+        if existing_name:
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Batch name already exists"
+            )
+
         batch.name = batch_data.name
 
     if batch_data.start_date is not None:
