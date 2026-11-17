@@ -18,11 +18,23 @@ def _validate_mobile(v: Optional[str]) -> Optional[str]:
 MobileStr = Annotated[str, AfterValidator(_validate_mobile)]
 
 
+def _validate_password(v: str) -> str:
+    """8+ chars with at least one letter and one digit."""
+    if len(v) < 8:
+        raise ValueError("Password must be at least 8 characters")
+    if not any(c.isalpha() for c in v) or not any(c.isdigit() for c in v):
+        raise ValueError("Password must contain letters and digits")
+    return v
+
+
+PasswordStr = Annotated[str, AfterValidator(_validate_password)]
+
+
 class UserCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: Optional[str] = Field(default=None, max_length=100)
     email: EmailStr
-    password: str = Field(min_length=6)
+    password: PasswordStr
     mobile_number: Optional[MobileStr] = Field(
         default=None, max_length=20
     )
@@ -32,7 +44,7 @@ class AdminUserCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: Optional[str] = Field(default=None, max_length=100)
     email: EmailStr
-    password: str = Field(min_length=6)
+    password: PasswordStr
     role: str
     mobile_number: Optional[MobileStr] = Field(
         default=None, max_length=20
@@ -46,7 +58,7 @@ class UserUpdate(BaseModel):
     )
     last_name: Optional[str] = Field(default=None, max_length=100)
     email: Optional[EmailStr] = None
-    password: Optional[str] = Field(default=None, min_length=6)
+    password: Optional[PasswordStr] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
     mobile_number: Optional[MobileStr] = Field(

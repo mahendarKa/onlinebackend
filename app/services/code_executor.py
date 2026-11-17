@@ -2,21 +2,70 @@
 
 Runs student programs via subprocess inside a throwaway temp directory
 with a hard timeout — no Docker required. Relies on toolchains already
-installed on the host (python, javac/java, node). Designed for trusted
-LAN deployments; it does NOT sandbox the OS (no user isolation / memory
-caps on Windows), so only run code from trusted exam candidates.
+installed on the host (python, javac/java, node).
+
+Hardening applied: child processes get a scrubbed environment (app
+secrets such as DATABASE_URL and SECRET_KEY are never inherited) and,
+on POSIX hosts, resource limits on CPU time, address space, file size
+and process count. Windows lacks preexec rlimits, so timeouts remain
+the main containment there. For full isolation (filesystem/network),
+run this service inside a container or dedicated worker.
 """
 
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
 DEFAULT_TIMEOUT = 5      # per-test-case run seconds
 COMPILE_TIMEOUT = 25     # javac etc.
+
+# Student code must never see application secrets or host internals.
+# Only these env vars are passed through to child processes.
+_ENV_ALLOWLIST = {
+    "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR",
+    "COMSPEC", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE",
+    "LANG", "LC_ALL", "LC_CTYPE", "TZ",
+    # Toolchains that need their own env to locate SDKs/installs.
+    "JAVA_HOME", "ANDROID_HOME", "DOTNET_ROOT", "GOROOT", "GOPATH",
+    "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA", "APPDATA",
+    "LOCALAPPDATA", "OS", "NUMBER_OF_PROCESSORS",
+}
+
+
+def _child_env() -> dict:
+    """Environment for student subprocesses: allowlist only."""
+    return {k: v for k, v in os.environ.items() if k.upper() in _ENV_ALLOWLIST}
+
+
+def _posix_limits(timeout: int):
+    """preexec_fn applying rlimits on POSIX; None on Windows."""
+    if sys.platform == "win32":
+        return None
+
+    def apply():  # pragma: no cover - only runs on POSIX hosts
+        import resource
+        cpu = max(timeout, 1) + 2
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
+        # 512 MB address space cap — enough for javac/dotnet, blocks
+        # trivial memory bombs.
+        mem = 512 * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+        # 10 MB max file writes inside the temp dir.
+        resource.setrlimit(resource.RLIMIT_FSIZE, (10 * 1024 * 1024,) * 2)
+        # Cap process count to blunt fork bombs (best-effort).
+        try:
+            resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+        except (ValueError, OSError):
+            pass
+        # New session so a timeout kill can't signal our process group.
+        os.setsid()
+
+    return apply
 
 # Aliases so a config may say "python3", "js", "nodejs", etc.
 LANG_ALIASES = {
@@ -333,6 +382,8 @@ def _run_cmd(argv, workdir, stdin_text, timeout):
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=_child_env(),
+            preexec_fn=_posix_limits(timeout),
         )
         return proc.returncode, proc.stdout or "", proc.stderr or "", False
     except subprocess.TimeoutExpired:

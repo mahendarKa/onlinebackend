@@ -33,6 +33,7 @@ from app.schemas.exam_attempt import (
     ExamImageForStudent,
 )
 from app.utils.dependencies import require_role
+from app.utils.rate_limit import RateLimiter
 from app.utils.time import utcnow
 from app.services.evaluation_service import (
     calculated_wildcards,
@@ -47,6 +48,10 @@ from app.services.question_change import (
 
 router = APIRouter(prefix="/api/student/exams", tags=["Student Exam Attempts"])
 student_only = Depends(require_role("student"))
+
+# Code execution is expensive (compile+run per call) — cap how often a
+# single student can trigger it to blunt CPU-exhaustion abuse.
+_run_code_limiter = RateLimiter(max_hits=10, window_seconds=60)
 
 
 def get_attempt(attempt_id: int, user_id: int, db: Session):
@@ -522,6 +527,14 @@ def run_code_for_attempt(
     db: Session = Depends(get_db),
     current_user=student_only,
 ):
+    if not _run_code_limiter.check(f"u{current_user.id}"):
+        retry = _run_code_limiter.retry_after(f"u{current_user.id}")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Run-code limit reached. Try again in {retry}s.",
+            headers={"Retry-After": str(retry)},
+        )
+
     attempt = get_attempt(attempt_id, current_user.id, db)
     check_attempt_open(attempt, db)
 

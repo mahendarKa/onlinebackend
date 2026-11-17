@@ -303,10 +303,10 @@ def admin_bulk_upload_users(
             )
             continue
 
-        if len(password) < 6:
+        if len(password) < 8:
             errors.append(
                 {"row": row_no, "email": email,
-                 "reason": "password must be at least 6 characters"}
+                 "reason": "password must be at least 8 characters"}
             )
             continue
 

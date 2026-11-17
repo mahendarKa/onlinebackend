@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.config.settings import settings
 
 from app.config.database import Base, engine
 # from app import models  # noqa: F401  (registers all models on Base.metadata)
@@ -129,11 +131,31 @@ async def lifespan(_app: FastAPI):
 
 
 
+_is_production = settings.ENVIRONMENT.lower() == "production"
+
 app = FastAPI(
     title="Online Exam Portal API",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    # Interactive docs map the whole API surface — dev only.
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Baseline hardening headers on every response."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Cache-Control"] = (
+        response.headers.get("Cache-Control") or "no-store"
+    )
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -145,8 +167,8 @@ app.add_middleware(
         "https://onlinefrontend.vercel.app"
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 

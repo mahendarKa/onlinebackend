@@ -9,17 +9,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # DATABASE_URL: str = (
-    #     # "mysql+pymysql://root:root@localhost:3306/online_exam_portal"
-    #     "mysql+pymysql://25E6HpKvtk5YTpc.root:9Dguib4fvXzDH05S@gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/online_exam_portal"
-    # )
-
-    # SECRET_KEY: str = "hansetechhansetechhansetechhansetech"
     DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
 
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200
+    # 8 hours — long enough for an exam session, short enough that a
+    # leaked token expires quickly. Override per-environment in .env.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
+
+    # "production" disables interactive API docs (/docs, /redoc).
+    ENVIRONMENT: str = "production"
 
 
 settings = Settings()

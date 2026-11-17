@@ -10,6 +10,7 @@ Override the seeded credentials via environment variables:
     SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD, SUPERADMIN_NAME
 """
 import os
+import secrets
 
 from sqlalchemy import inspect, text
 
@@ -19,12 +20,31 @@ from app.models.user import User
 from app.utils.security import hash_password
 
 
+def _seed_password(env_var: str) -> str:
+    """Password for a seeded account.
+
+    Reads from the env var when set; otherwise generates a random
+    one-time password and prints it once so the operator can log in
+    and change it. No predictable defaults — a deployed instance
+    never ships with a known password.
+    """
+    pw = os.getenv(env_var)
+    if pw:
+        return pw
+    generated = secrets.token_urlsafe(12)
+    print(
+        f"[init_db] {env_var} not set — generated a one-time "
+        f"password: {generated} (change it after first login)"
+    )
+    return generated
+
+
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = _seed_password("ADMIN_PASSWORD")
 ADMIN_NAME = os.getenv("ADMIN_NAME", "Administrator")
 
 SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "superadmin@example.com")
-SUPERADMIN_PASSWORD = os.getenv("SUPERADMIN_PASSWORD", "superadmin123")
+SUPERADMIN_PASSWORD = _seed_password("SUPERADMIN_PASSWORD")
 SUPERADMIN_NAME = os.getenv("SUPERADMIN_NAME", "Super Admin")
 
 

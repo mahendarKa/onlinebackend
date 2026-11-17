@@ -1,0 +1,19 @@
+# Secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Local uploads (files are stored in DB; this dir is legacy fallback)
+uploads/
+
+# Logs / OS
+*.log
+.DS_Store
+Thumbs.db

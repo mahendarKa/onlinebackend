@@ -1,4 +1,6 @@
 import bcrypt
+import hashlib
+import hmac
 from datetime import datetime, timedelta, timezone
 
 from jose import jwt
@@ -46,3 +48,23 @@ def create_access_token(
         settings.SECRET_KEY,
         algorithm=settings.ALGORITHM
     )
+
+
+def sign_filename(filename: str) -> str:
+    """HMAC signature for upload filenames served without auth.
+
+    <img> tags can't send Authorization headers, so privacy-sensitive
+    uploads (proctoring snapshots) carry an HMAC query param instead.
+    """
+    return hmac.new(
+        settings.SECRET_KEY.encode("utf-8"),
+        filename.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:32]
+
+
+def verify_filename_sig(filename: str, sig: str) -> bool:
+    """Constant-time check of a signature produced by sign_filename."""
+    if not sig:
+        return False
+    return hmac.compare_digest(sign_filename(filename), sig)

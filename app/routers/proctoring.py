@@ -26,6 +26,7 @@ from app.models.user import User
 from app.schemas.proctoring import ProctorEventCreate, PROCTOR_EVENT_TYPES
 from app.utils.dependencies import require_role
 from app.utils.permissions import require_exam_view
+from app.utils.security import sign_filename
 
 router = APIRouter(prefix="/api/proctoring", tags=["Proctoring"])
 
@@ -125,11 +126,13 @@ async def upload_snapshot(
         data=data,
     ))
 
+    # Signed URL: /api/uploads is unauthenticated for <img> tags,
+    # so proc_* files require this HMAC to be served at all.
     event = ProctorEvent(
         attempt_id=attempt_id,
         event_type=event_type,
         detail=detail,
-        snapshot_url=f"/api/uploads/{name}",
+        snapshot_url=f"/api/uploads/{name}?sig={sign_filename(name)}",
     )
     db.add(event)
     db.commit()
